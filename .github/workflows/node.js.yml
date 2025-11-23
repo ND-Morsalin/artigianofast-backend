@@ -13,6 +13,10 @@ jobs:
   build:
 
     runs-on: self-hosted
+    environment: production
+
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
 
     strategy:
       matrix:
