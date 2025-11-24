@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime logs
+logs/
+*.log
+
+# redis and mongodb data
+redis-data/
+data1/
+mongo/
+
+# Coverage and test files
+coverage/
+**/__tests__/
+**/*.test.ts
+**/*.test.js
+
+# Environment files
+.env*
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Docker files
+docker-compose*.yml
+Dockerfile*
+
+# Documentation
+*.md
+docs/
+# swagger-docs/ - needed for API documentation
+
+# Development configs
+.eslintrc.*
+.prettier*
+jest.config.*
+# tsconfig.json - needed for build
+
+# Build artifacts (except for multi-stage builds)
+# dist/ - commented out for multi-stage build
+
+# Temporary files
+tmp/
+temp/
+
+# GitHub
+.github/

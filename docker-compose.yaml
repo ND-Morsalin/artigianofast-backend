@@ -1,0 +1,60 @@
+
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: my-mysql
+    env_file:
+      - .env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    ports:
+      # Expose port so it can be reached from the host / internet.
+      - "${MYSQL_PUBLIC_PORT:-3304}:3306"
+    volumes:
+      # store mysql data inside project root ./mysql-data
+      - ./mysql-data:/var/lib/mysql
+      - ./mysql-conf/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - artigianofast-network   # <-- add this
+      
+  # api-service:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "${PORT:-3000}:3000"
+  #   volumes:
+  #     - ./logs:/usr/src/app/logs
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   networks:
+  #     - artigianofast-network
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+
+volumes:
+  mysql-data:
+
+networks:
+  artigianofast-network:
+    driver: bridge
