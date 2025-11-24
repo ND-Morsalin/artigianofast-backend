@@ -16,6 +16,7 @@ export async function initDB() {
     const pool = mysql.createPool(process.env.DATABASE_URL!);
     db = drizzle(pool as any, { schema, mode: 'default' });
     isInitialized = true;
+    console.log('Database connection pool created');
   }
   return db;
 }
