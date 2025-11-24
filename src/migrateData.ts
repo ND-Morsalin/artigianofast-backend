@@ -37,7 +37,10 @@ async function migrateData() {
     const jobTypes = await memStorage.getJobTypes();
     for (const jobType of jobTypes) {
       try {
-        await mysqlStorage.createJobType(jobType);
+        await mysqlStorage.createJobType({
+          ...jobType,
+          sectorIds: jobType.sectorIds || ""
+        });
         console.log(`✅ Migrated job type: ${jobType.name}`);
       } catch (error) {
         console.log(`⚠️ Job type ${jobType.name} might already exist, skipping...`);
