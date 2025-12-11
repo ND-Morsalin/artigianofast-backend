@@ -1,5 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
-import { PlanEnforcementService } from '../services/planEnforcement';
+import { Request, Response, NextFunction } from "express";
+import { PlanEnforcementService } from "../services/planEnforcement";
 
 /**
  * Middleware to check if a feature is enabled for the user
@@ -9,34 +9,39 @@ export const requireFeature = (featureId: string) => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
-          console.log(`✅ requireFeature('${featureId}'): Mobile session authenticated, userId=${userId}`);
+          console.log(
+            `✅ requireFeature('${featureId}'): Mobile session authenticated, userId=${userId}`
+          );
         }
       }
-      
+
       if (!userId) {
         console.log(`❌ requireFeature('${featureId}'): No userId found`);
-        return res.status(401).json({ error: 'Non autenticato' });
+        return res.status(401).json({ error: "Non autenticato" });
       }
 
-      const isEnabled = await PlanEnforcementService.isFeatureEnabled(userId, featureId);
+      const isEnabled = await PlanEnforcementService.isFeatureEnabled(
+        userId,
+        featureId
+      );
       if (!isEnabled) {
-        return res.status(403).json({ 
-          error: 'Funzionalità non disponibile nel tuo piano',
+        return res.status(403).json({
+          error: "Funzionalità non disponibile nel tuo piano",
           feature: featureId,
-          upgrade: true
+          upgrade: true,
         });
       }
 
       next();
     } catch (error) {
-      console.error('Error checking feature:', error);
-      res.status(500).json({ error: 'Errore interno del server' });
+      console.error("Error checking feature:", error);
+      res.status(500).json({ error: "Errore interno del server" });
     }
   };
 };
@@ -44,46 +49,52 @@ export const requireFeature = (featureId: string) => {
 /**
  * Middleware to check page access permissions
  */
-export const requirePageAccess = (pageId: string, requiredAccess: 'view' | 'edit' = 'view') => {
+export const requirePageAccess = (
+  pageId: string,
+  requiredAccess: "view" | "edit" = "view"
+) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
         }
       }
-      
+
       if (!userId) {
-        return res.status(401).json({ error: 'Non autenticato' });
+        return res.status(401).json({ error: "Non autenticato" });
       }
 
-      const userAccess = await PlanEnforcementService.getPageAccess(userId, pageId);
-      
-      if (userAccess === 'none') {
-        return res.status(403).json({ 
-          error: 'Pagina non accessibile nel tuo piano',
+      const userAccess = await PlanEnforcementService.getPageAccess(
+        userId,
+        pageId
+      );
+
+      if (userAccess === "none") {
+        return res.status(403).json({
+          error: "Pagina non accessibile nel tuo piano",
           page: pageId,
-          upgrade: true
+          upgrade: true,
         });
       }
 
-      if (requiredAccess === 'edit' && userAccess !== 'edit') {
-        return res.status(403).json({ 
-          error: 'Modifica non consentita nel tuo piano',
+      if (requiredAccess === "edit" && userAccess !== "edit") {
+        return res.status(403).json({
+          error: "Modifica non consentita nel tuo piano",
           page: pageId,
-          upgrade: true
+          upgrade: true,
         });
       }
 
       next();
     } catch (error) {
-      console.error('Error checking page access:', error);
-      res.status(500).json({ error: 'Errore interno del server' });
+      console.error("Error checking page access:", error);
+      res.status(500).json({ error: "Errore interno del server" });
     }
   };
 };
@@ -96,32 +107,35 @@ export const requirePermission = (permissionId: string) => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
         }
       }
-      
+
       if (!userId) {
-        return res.status(401).json({ error: 'Non autenticato' });
+        return res.status(401).json({ error: "Non autenticato" });
       }
 
-      const hasPermission = await PlanEnforcementService.hasPermission(userId, permissionId);
+      const hasPermission = await PlanEnforcementService.hasPermission(
+        userId,
+        permissionId
+      );
       if (!hasPermission) {
-        return res.status(403).json({ 
-          error: 'Operazione non consentita nel tuo piano',
+        return res.status(403).json({
+          error: "Operazione non consentita nel tuo piano",
           permission: permissionId,
-          upgrade: true
+          upgrade: true,
         });
       }
 
       next();
     } catch (error) {
-      console.error('Error checking permission:', error);
-      res.status(500).json({ error: 'Errore interno del server' });
+      console.error("Error checking permission:", error);
+      res.status(500).json({ error: "Errore interno del server" });
     }
   };
 };
@@ -134,33 +148,36 @@ export const checkFeatureLimit = (feature: string) => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
         }
       }
-      
+
       if (!userId) {
-        return res.status(401).json({ error: 'Non autenticato' });
+        return res.status(401).json({ error: "Non autenticato" });
       }
 
-      const limitCheck = await PlanEnforcementService.checkFeatureLimit(userId, feature);
+      const limitCheck = await PlanEnforcementService.checkFeatureLimit(
+        userId,
+        feature
+      );
       if (!limitCheck.allowed) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: `Limite raggiunto per ${feature}`,
           current: limitCheck.current,
           limit: limitCheck.limit,
-          upgrade: true
+          upgrade: true,
         });
       }
 
       next();
     } catch (error) {
-      console.error('Error checking feature limit:', error);
-      res.status(500).json({ error: 'Errore interno del server' });
+      console.error("Error checking feature limit:", error);
+      res.status(500).json({ error: "Errore interno del server" });
     }
   };
 };
@@ -173,46 +190,54 @@ export const filterResponseByPlan = (entity: string) => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
         }
       }
-      
+
       if (!userId) {
         return next();
       }
 
       // Store original send method
       const originalSend = res.send;
-      
+
       // Override send method to filter data
-      res.send = function(data: any) {
+      res.send = function (data: any) {
         try {
-          if (typeof data === 'string') {
+          if (typeof data === "string") {
             // Try to parse JSON
             const parsed = JSON.parse(data);
-            const filtered = PlanEnforcementService.filterDataByPlan(userId, entity, parsed);
+            const filtered = PlanEnforcementService.filterDataByPlan(
+              userId,
+              entity,
+              parsed
+            );
             return originalSend.call(this, JSON.stringify(filtered));
-          } else if (typeof data === 'object') {
+          } else if (typeof data === "object") {
             // Filter object data
-            const filtered = PlanEnforcementService.filterDataByPlan(userId, entity, data);
+            const filtered = PlanEnforcementService.filterDataByPlan(
+              userId,
+              entity,
+              data
+            );
             return originalSend.call(this, filtered);
           }
         } catch (e) {
           // If filtering fails, send original data
-          console.error('Error filtering response data:', e);
+          console.error("Error filtering response data:", e);
         }
-        
+
         return originalSend.call(this, data);
       };
 
       next();
     } catch (error) {
-      console.error('Error setting up response filter:', error);
+      console.error("Error setting up response filter:", error);
       next();
     }
   };
@@ -226,28 +251,30 @@ export const addPlanInfo = () => {
     try {
       // Check for BOTH Express session AND mobile session
       let userId: number | undefined = (req.session as any).userId;
-      
+
       // If no Express session, check for mobile session
-      if (!userId && req.headers['x-mobile-session-id']) {
-        const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+      if (!userId && req.headers["x-mobile-session-id"]) {
+        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
         if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
           userId = global.mobileSessions[mobileSessionId];
         }
       }
-      
+
       if (!userId) {
         return next();
       }
 
-      const config = await PlanEnforcementService.getUserPlanConfiguration(userId);
+      const config = await PlanEnforcementService.getUserPlanConfiguration(
+        userId
+      );
       if (config) {
-        res.setHeader('X-Plan-ID', config.planId.toString());
-        res.setHeader('X-Plan-Features', JSON.stringify(config.features));
+        res.setHeader("X-Plan-ID", config.planId.toString());
+        res.setHeader("X-Plan-Features", JSON.stringify(config.features));
       }
 
       next();
     } catch (error) {
-      console.error('Error adding plan info:', error);
+      console.error("Error adding plan info:", error);
       next();
     }
   };
@@ -259,17 +286,21 @@ export const addPlanInfo = () => {
 export const getUserPlanConfig = async (req: Request) => {
   const userId = (req.session as any).userId;
   if (!userId) return null;
-  
+
   return await PlanEnforcementService.getUserPlanConfiguration(userId);
 };
 
 /**
  * Utility function to check if a field should be visible
  */
-export const isFieldVisible = async (req: Request, entity: string, fieldId: string) => {
+export const isFieldVisible = async (
+  req: Request,
+  entity: string,
+  fieldId: string
+) => {
   const userId = (req.session as any).userId;
   if (!userId) return true;
-  
+
   return await PlanEnforcementService.isFieldVisible(userId, entity, fieldId);
 };
 
@@ -281,5 +312,5 @@ export default {
   filterResponseByPlan,
   addPlanInfo,
   getUserPlanConfig,
-  isFieldVisible
-}; 
+  isFieldVisible,
+};

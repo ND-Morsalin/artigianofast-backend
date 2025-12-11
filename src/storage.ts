@@ -453,7 +453,7 @@ export class MemStorage implements IStorage {
       height: 100,
       width: 300,
       displayDuration: 10,
-      weeklySchedule: undefined
+      weeklySchedule: undefined,
     });
     this.jobTypeId = 1;
     this.activityId = 1;
@@ -522,31 +522,31 @@ export class MemStorage implements IStorage {
     this.createJobType({
       name: "Riparazione",
       description: "Riparazione di impianti o apparecchiature esistenti",
-      sectorIds: ""
+      sectorIds: "",
     });
 
     this.createJobType({
       name: "Installazione",
       description: "Installazione di nuovi impianti o apparecchiature",
-      sectorIds: ""
+      sectorIds: "",
     });
 
     this.createJobType({
       name: "Manutenzione",
       description: "Manutenzione preventiva o periodica",
-      sectorIds: ""
+      sectorIds: "",
     });
 
     this.createJobType({
       name: "Preventivo",
       description: "Sopralluogo per fornire un preventivo",
-      sectorIds: ""
+      sectorIds: "",
     });
 
     this.createJobType({
       name: "Emergenza",
       description: "Intervento urgente per problemi critici",
-      sectorIds: ""
+      sectorIds: "",
     });
 
     // Add default activities

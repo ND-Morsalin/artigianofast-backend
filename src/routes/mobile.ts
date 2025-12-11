@@ -191,7 +191,7 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 
     // Debug per verificare cosa viene inviato
-    console.log("Login attempt:", { email, username, password: password ? "***" : undefined });
+    console.log("Login attempt:",req.body, { email, username, password: password ? "***" : undefined });
     
     // Cerca utente - prima per email se fornita, altrimenti per username
     let user;

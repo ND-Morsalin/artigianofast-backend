@@ -1,55 +1,36 @@
-import 'dotenv/config';
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import MemoryStore from "memorystore";
 import cors from "cors";
 import multer from "multer";
 import { registerRoutes } from "./routes";
- 
+
 import { registerMobileSpotEndpoints } from "./api-spots";
 import { initDB } from "./db";
-import { sendUpcomingJobReminders, processPlanRenewalReminders } from "./services/notifications";
+import {
+  sendUpcomingJobReminders,
+  processPlanRenewalReminders,
+} from "./services/notifications";
 
 const app = express();
 
 // Enable CORS for mobile app - more permissive for mobile apps
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
-    
-    const allowedOrigins = [
-      'http://localhost', 
-      'https://artigianofast.com', 
-      'http://www.artigianofast.com',
-      'https://www.artigianofast.com',
-      'http://192.168.100.183:3000',
-      'http://10.103.181.15:3000',
-      'capacitor://localhost', 
-      'ionic://localhost',
-      'http://localhost:8100',
-      'http://localhost:4200',
-      'http://localhost:8080',
-      'http://localhost:5173',
-      'http://localhost:4173'
-    ];
-    
-    // Check if origin is in allowed list or if it's a mobile app (no origin)
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      // For mobile apps, allow anyway (they might have null origin)
-      callback(null, true);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-mobile-session-id'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}));
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+      "x-mobile-session-id",
+    ],
+  })
+);
 
 // Handle preflight requests specifically for mobile
 // app.use('/*', (req, res) => {
@@ -62,9 +43,9 @@ app.use(cors({
 // });
 
 // Configure JSON parsing with special handling for Stripe webhooks
-app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 // Configure multer for handling multipart/form-data
 const upload = multer({
@@ -79,20 +60,22 @@ app.use(upload.any());
 
 // Setup session middleware
 const SessionStore = MemoryStore(session);
-app.use(session({
-  secret: process.env.SESSION_SECRET || "artisan-project-manager-secret-key",
-  resave: false,
-  saveUninitialized: false,
-  store: new SessionStore({
-    checkPeriod: 86400000 // prune expired entries every 24h
-  }),
-  cookie: { 
-    secure: false, // Allow HTTP for mobile app development
-    httpOnly: true,
-    sameSite: 'lax', // Allow cross-origin requests from mobile app
-    maxAge: 86400000 // 24 hours
-  }
-}));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "artisan-project-manager-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    store: new SessionStore({
+      checkPeriod: 86400000, // prune expired entries every 24h
+    }),
+    cookie: {
+      secure: false, // Allow HTTP for mobile app development
+      httpOnly: true,
+      sameSite: "lax", // Allow cross-origin requests from mobile app
+      maxAge: 86400000, // 24 hours
+    },
+  })
+);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -127,10 +110,10 @@ app.use((req, res, next) => {
 (async () => {
   // Initialize database
   await initDB();
-  
+
   // Registra l'endpoint dedicato per gli spot promozionali mobile
   registerMobileSpotEndpoints(app);
-  
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -144,25 +127,31 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
- 
 
   // Serve the app on port 3000
   // this serves both the API and the client.
   const port = process.env.PORT || 5000;
-  server.listen({
-    port: Number(port),
-    host: process.env.HOST || "0.0.0.0", // Listen on all network interfaces for mobile app
-  }, () => {
-    console.log(`serving on port ${port} on all network interfaces`);
-  });
+  server.listen(
+    {
+      port: Number(port),
+      host: process.env.HOST || "0.0.0.0", // Listen on all network interfaces for mobile app
+    },
+    () => {
+      console.log(`serving on port ${port} on all network interfaces`);
+    }
+  );
 
   // Simple in-process scheduler for job reminders (every 15 minutes)
   setInterval(() => {
-    sendUpcomingJobReminders().catch((e) => console.log(`reminder job failed: ${String(e)}`, "notifications"));
+    sendUpcomingJobReminders().catch((e) =>
+      console.log(`reminder job failed: ${String(e)}`, "notifications")
+    );
   }, 15 * 60 * 1000);
 
   // Plan renewal reminders once per day
   setInterval(() => {
-    processPlanRenewalReminders(7).catch((e) => console.log(`renewal reminders failed: ${String(e)}`, "notifications"));
+    processPlanRenewalReminders(7).catch((e) =>
+      console.log(`renewal reminders failed: ${String(e)}`, "notifications")
+    );
   }, 24 * 60 * 60 * 1000);
 })();

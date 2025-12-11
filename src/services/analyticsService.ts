@@ -1,5 +1,4 @@
-import { storage } from '../storage';
-import { PlanFeatures } from './planEnforcement';
+import { storage } from "../storage";
 
 // Type definitions for database entities
 interface User {
@@ -159,7 +158,7 @@ export interface FeaturePerformance {
   successRate: number;
   averageResponseTime: number;
   errorCount: number;
-  usageTrend: 'increasing' | 'decreasing' | 'stable';
+  usageTrend: "increasing" | "decreasing" | "stable";
 }
 
 export interface UserSatisfaction {
@@ -175,8 +174,8 @@ export interface FeatureRequest {
   featureName: string;
   description: string;
   requestedBy: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  status: 'pending' | 'approved' | 'rejected' | 'implemented';
+  priority: "low" | "medium" | "high" | "critical";
+  status: "pending" | "approved" | "rejected" | "implemented";
   requestCount: number;
 }
 
@@ -185,13 +184,12 @@ export interface BugReport {
   featureName: string;
   description: string;
   reportedBy: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  status: 'open' | 'investigating' | 'fixed' | 'closed';
+  severity: "low" | "medium" | "high" | "critical";
+  status: "open" | "investigating" | "fixed" | "closed";
   affectedUsers: number;
 }
 
 export class AnalyticsService {
-  
   // Get comprehensive analytics data
   static async getAnalyticsData(): Promise<AnalyticsData> {
     try {
@@ -200,13 +198,13 @@ export class AnalyticsService {
         userBehavior,
         systemPerformance,
         revenueMetrics,
-        featureAnalytics
+        featureAnalytics,
       ] = await Promise.all([
         this.getPlanUsageMetrics(),
         this.getUserBehaviorMetrics(),
         this.getSystemPerformanceMetrics(),
         this.getRevenueMetrics(),
-        this.getFeatureAnalytics()
+        this.getFeatureAnalytics(),
       ]);
 
       return {
@@ -214,10 +212,10 @@ export class AnalyticsService {
         userBehavior,
         systemPerformance,
         revenueMetrics,
-        featureAnalytics
+        featureAnalytics,
       };
     } catch (error) {
-      console.error('Error getting analytics data:', error);
+      console.error("Error getting analytics data:", error);
       throw error;
     }
   }
@@ -225,40 +223,48 @@ export class AnalyticsService {
   // Get plan usage metrics
   static async getPlanUsageMetrics(): Promise<PlanUsageMetrics> {
     try {
-      const plans = await storage.getSubscriptionPlans() as SubscriptionPlan[];
-      const planConfigs = await storage.getPlanConfigurations() as PlanConfiguration[];
-      const users = await storage.getUsers() as User[];
+      const plans =
+        (await storage.getSubscriptionPlans()) as SubscriptionPlan[];
+      const planConfigs =
+        (await storage.getPlanConfigurations()) as PlanConfiguration[];
+      const users = (await storage.getUsers()) as User[];
 
       const totalPlans = plans.length;
-      const activePlans = plans.filter((p: SubscriptionPlan) => p.isActive).length;
+      const activePlans = plans.filter(
+        (p: SubscriptionPlan) => p.isActive
+      ).length;
 
       // Calculate plan distribution
-      const planDistribution: PlanDistribution[] = plans.map((plan: SubscriptionPlan) => {
-        const usersOnPlan = planConfigs.filter((config: PlanConfiguration) => 
-          config.planId === plan.id && config.isActive
-        ).length;
-        
-        const percentage = users.length > 0 ? (usersOnPlan / users.length) * 100 : 0;
-        
-        return {
-          planName: plan.name,
-          userCount: usersOnPlan,
-          percentage: Math.round(percentage * 100) / 100,
-          averageUsage: this.calculateAveragePlanUsage(plan.id, planConfigs)
-        };
-      });
+      const planDistribution: PlanDistribution[] = plans.map(
+        (plan: SubscriptionPlan) => {
+          const usersOnPlan = planConfigs.filter(
+            (config: PlanConfiguration) =>
+              config.planId === plan.id && config.isActive
+          ).length;
+
+          const percentage =
+            users.length > 0 ? (usersOnPlan / users.length) * 100 : 0;
+
+          return {
+            planName: plan.name,
+            userCount: usersOnPlan,
+            percentage: Math.round(percentage * 100) / 100,
+            averageUsage: this.calculateAveragePlanUsage(plan.id, planConfigs),
+          };
+        }
+      );
 
       // Get most/least used features
       const featureUsage = this.analyzeFeatureUsage(plans, planConfigs);
       const mostPopularFeatures = featureUsage
         .sort((a, b) => b.usageCount - a.usageCount)
         .slice(0, 5)
-        .map(f => f.featureName);
+        .map((f) => f.featureName);
 
       const leastUsedFeatures = featureUsage
         .sort((a, b) => a.usageCount - b.usageCount)
         .slice(0, 5)
-        .map(f => f.featureName);
+        .map((f) => f.featureName);
 
       return {
         totalPlans,
@@ -267,10 +273,10 @@ export class AnalyticsService {
         mostPopularFeatures,
         leastUsedFeatures,
         upgradeRequests: 0, // TODO: Implement upgrade tracking
-        downgradeRequests: 0 // TODO: Implement downgrade tracking
+        downgradeRequests: 0, // TODO: Implement downgrade tracking
       };
     } catch (error) {
-      console.error('Error getting plan usage metrics:', error);
+      console.error("Error getting plan usage metrics:", error);
       throw error;
     }
   }
@@ -278,19 +284,26 @@ export class AnalyticsService {
   // Get user behavior metrics
   static async getUserBehaviorMetrics(): Promise<UserBehaviorMetrics> {
     try {
-      const users = await storage.getUsers() as User[];
-      const planConfigs = await storage.getPlanConfigurations() as PlanConfiguration[];
+      const users = (await storage.getUsers()) as User[];
+      const planConfigs =
+        (await storage.getPlanConfigurations()) as PlanConfiguration[];
 
       const totalUsers = users.length;
-      const activeUsers = users.filter((u: User) => u.lastLogin && 
-        new Date(u.lastLogin).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
+      const activeUsers = users.filter(
+        (u: User) =>
+          u.lastLogin &&
+          new Date(u.lastLogin).getTime() >
+            Date.now() - 30 * 24 * 60 * 60 * 1000
       ).length;
 
       // Calculate feature usage
       const mostUsedFeatures = this.calculateMostUsedFeatures(planConfigs);
-      
+
       // Calculate feature adoption rates
-      const featureAdoption = this.calculateFeatureAdoption(planConfigs, totalUsers);
+      const featureAdoption = this.calculateFeatureAdoption(
+        planConfigs,
+        totalUsers
+      );
 
       // Calculate user engagement (simplified for now)
       const userEngagement: UserEngagement[] = users.map((user: User) => ({
@@ -299,7 +312,7 @@ export class AnalyticsService {
         lastActive: user.lastLogin || new Date(),
         featuresUsed: this.getUserFeatures(user.id, planConfigs),
         sessionCount: 0, // TODO: Implement session tracking
-        totalTime: 0 // TODO: Implement time tracking
+        totalTime: 0, // TODO: Implement time tracking
       }));
 
       return {
@@ -308,10 +321,10 @@ export class AnalyticsService {
         averageSessionDuration: 0, // TODO: Implement session tracking
         mostUsedFeatures,
         featureAdoptionRate: featureAdoption,
-        userEngagement
+        userEngagement,
       };
     } catch (error) {
-      console.error('Error getting user behavior metrics:', error);
+      console.error("Error getting user behavior metrics:", error);
       throw error;
     }
   }
@@ -330,11 +343,11 @@ export class AnalyticsService {
           cpuUsage: 0, // TODO: Implement system monitoring
           memoryUsage: 0,
           databaseConnections: 0,
-          activeSessions: 0
-        }
+          activeSessions: 0,
+        },
       };
     } catch (error) {
-      console.error('Error getting system performance metrics:', error);
+      console.error("Error getting system performance metrics:", error);
       throw error;
     }
   }
@@ -346,27 +359,37 @@ export class AnalyticsService {
       const planConfigs = await storage.getPlanConfigurations();
 
       // Calculate revenue breakdown
-      const planRevenueBreakdown: PlanRevenue[] = plans.map(plan => {
-        const usersOnPlan = planConfigs.filter((config: any) => 
-          config.planId === plan.id && config.isActive
+      const planRevenueBreakdown: PlanRevenue[] = plans.map((plan) => {
+        const usersOnPlan = planConfigs.filter(
+          (config: any) => config.planId === plan.id && config.isActive
         ).length;
 
-        const monthlyRevenue = parseFloat(plan.monthlyPrice || '0') * usersOnPlan;
-        const yearlyRevenue = parseFloat(plan.yearlyPrice || '0') * usersOnPlan;
+        const monthlyRevenue =
+          parseFloat(plan.monthlyPrice || "0") * usersOnPlan;
+        const yearlyRevenue = parseFloat(plan.yearlyPrice || "0") * usersOnPlan;
 
         return {
           planName: plan.name,
           monthlyRevenue,
           yearlyRevenue,
           userCount: usersOnPlan,
-          totalRevenue: monthlyRevenue + yearlyRevenue
+          totalRevenue: monthlyRevenue + yearlyRevenue,
         };
       });
 
-      const totalRevenue = planRevenueBreakdown.reduce((sum, plan) => sum + plan.totalRevenue, 0);
-      const monthlyRecurringRevenue = planRevenueBreakdown.reduce((sum, plan) => sum + plan.monthlyRevenue, 0);
-      const totalUsers = planConfigs.filter((config: any) => config.isActive).length;
-      const averageRevenuePerUser = totalUsers > 0 ? totalRevenue / totalUsers : 0;
+      const totalRevenue = planRevenueBreakdown.reduce(
+        (sum, plan) => sum + plan.totalRevenue,
+        0
+      );
+      const monthlyRecurringRevenue = planRevenueBreakdown.reduce(
+        (sum, plan) => sum + plan.monthlyRevenue,
+        0
+      );
+      const totalUsers = planConfigs.filter(
+        (config: any) => config.isActive
+      ).length;
+      const averageRevenuePerUser =
+        totalUsers > 0 ? totalRevenue / totalUsers : 0;
 
       return {
         totalRevenue,
@@ -374,10 +397,10 @@ export class AnalyticsService {
         planRevenueBreakdown,
         upgradeRevenue: 0, // TODO: Implement upgrade tracking
         churnRate: 0, // TODO: Implement churn tracking
-        averageRevenuePerUser
+        averageRevenuePerUser,
       };
     } catch (error) {
-      console.error('Error getting revenue metrics:', error);
+      console.error("Error getting revenue metrics:", error);
       throw error;
     }
   }
@@ -390,43 +413,51 @@ export class AnalyticsService {
         featurePerformance: [], // TODO: Implement performance tracking
         userSatisfaction: [], // TODO: Implement satisfaction tracking
         featureRequests: [], // TODO: Implement request tracking
-        bugReports: [] // TODO: Implement bug tracking
+        bugReports: [], // TODO: Implement bug tracking
       };
     } catch (error) {
-      console.error('Error getting feature analytics:', error);
+      console.error("Error getting feature analytics:", error);
       throw error;
     }
   }
 
   // Helper methods
-  private static calculateAveragePlanUsage(planId: number, planConfigs: any[]): number {
-    const usersOnPlan = planConfigs.filter(config => 
-      config.planId === planId && config.isActive
+  private static calculateAveragePlanUsage(
+    planId: number,
+    planConfigs: any[]
+  ): number {
+    const usersOnPlan = planConfigs.filter(
+      (config) => config.planId === planId && config.isActive
     );
-    
+
     if (usersOnPlan.length === 0) return 0;
-    
+
     // Calculate average usage based on features enabled
     const totalFeatures = usersOnPlan.reduce((sum, config) => {
       try {
-        const features = JSON.parse(config.features || '{}');
-        const enabledFeatures = Object.values(features).filter(v => v === true).length;
+        const features = JSON.parse(config.features || "{}");
+        const enabledFeatures = Object.values(features).filter(
+          (v) => v === true
+        ).length;
         return sum + enabledFeatures;
       } catch {
         return sum;
       }
     }, 0);
-    
+
     return Math.round((totalFeatures / usersOnPlan.length) * 100) / 100;
   }
 
-  private static analyzeFeatureUsage(plans: any[], planConfigs: any[]): Array<{featureName: string, usageCount: number}> {
-    const featureCounts: {[key: string]: number} = {};
-    
-    planConfigs.forEach(config => {
+  private static analyzeFeatureUsage(
+    plans: any[],
+    planConfigs: any[]
+  ): Array<{ featureName: string; usageCount: number }> {
+    const featureCounts: { [key: string]: number } = {};
+
+    planConfigs.forEach((config) => {
       if (config.isActive) {
         try {
-          const features = JSON.parse(config.features || '{}');
+          const features = JSON.parse(config.features || "{}");
           Object.entries(features).forEach(([feature, enabled]) => {
             if (enabled === true) {
               featureCounts[feature] = (featureCounts[feature] || 0) + 1;
@@ -437,21 +468,21 @@ export class AnalyticsService {
         }
       }
     });
-    
+
     return Object.entries(featureCounts).map(([feature, count]) => ({
       featureName: feature,
-      usageCount: count
+      usageCount: count,
     }));
   }
 
   private static calculateMostUsedFeatures(planConfigs: any[]): FeatureUsage[] {
-    const featureCounts: {[key: string]: number} = {};
-    const uniqueUsers: {[key: string]: Set<number>} = {};
-    
-    planConfigs.forEach(config => {
+    const featureCounts: { [key: string]: number } = {};
+    const uniqueUsers: { [key: string]: Set<number> } = {};
+
+    planConfigs.forEach((config) => {
       if (config.isActive) {
         try {
-          const features = JSON.parse(config.features || '{}');
+          const features = JSON.parse(config.features || "{}");
           Object.entries(features).forEach(([feature, enabled]) => {
             if (enabled === true) {
               featureCounts[feature] = (featureCounts[feature] || 0) + 1;
@@ -464,22 +495,26 @@ export class AnalyticsService {
         }
       }
     });
-    
+
     return Object.entries(featureCounts).map(([feature, count]) => ({
       featureName: feature,
       usageCount: count,
       uniqueUsers: uniqueUsers[feature]?.size || 0,
-      averageUsagePerUser: Math.round((count / (uniqueUsers[feature]?.size || 1)) * 100) / 100
+      averageUsagePerUser:
+        Math.round((count / (uniqueUsers[feature]?.size || 1)) * 100) / 100,
     }));
   }
 
-  private static calculateFeatureAdoption(planConfigs: any[], totalUsers: number): FeatureAdoption[] {
-    const featureCounts: {[key: string]: number} = {};
-    
-    planConfigs.forEach(config => {
+  private static calculateFeatureAdoption(
+    planConfigs: any[],
+    totalUsers: number
+  ): FeatureAdoption[] {
+    const featureCounts: { [key: string]: number } = {};
+
+    planConfigs.forEach((config) => {
       if (config.isActive) {
         try {
-          const features = JSON.parse(config.features || '{}');
+          const features = JSON.parse(config.features || "{}");
           Object.entries(features).forEach(([feature, enabled]) => {
             if (enabled === true) {
               featureCounts[feature] = (featureCounts[feature] || 0) + 1;
@@ -490,24 +525,24 @@ export class AnalyticsService {
         }
       }
     });
-    
+
     return Object.entries(featureCounts).map(([feature, count]) => ({
       featureName: feature,
       totalUsers,
       adoptedUsers: count,
-      adoptionRate: Math.round((count / totalUsers) * 10000) / 100
+      adoptionRate: Math.round((count / totalUsers) * 10000) / 100,
     }));
   }
 
   private static getUserFeatures(userId: number, planConfigs: any[]): string[] {
-    const userConfig = planConfigs.find(config => 
-      config.userId === userId && config.isActive
+    const userConfig = planConfigs.find(
+      (config) => config.userId === userId && config.isActive
     );
-    
+
     if (!userConfig) return [];
-    
+
     try {
-      const features = JSON.parse(userConfig.features || '{}');
+      const features = JSON.parse(userConfig.features || "{}");
       return Object.entries(features)
         .filter(([_, enabled]) => enabled === true)
         .map(([feature, _]) => feature);
@@ -515,4 +550,4 @@ export class AnalyticsService {
       return [];
     }
   }
-} 
+}

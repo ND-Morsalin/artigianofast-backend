@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import "express-session";
 import { createServer, type Server } from "http";
-import { storage } from "./storage"; 
+import { storage } from "./storage";
 import mysql from "mysql2/promise";
 import mobileRoutes from "./routes/mobile";
 import stripeRoutes from "./routes/stripe";
@@ -262,12 +262,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           password === "FREE_PLAN_AUTO" ||
           password === "TEMPORARY_PASSWORD_NOT_NEEDED"
         ) {
-          return res
-            .status(400)
-            .json({
-              error:
-                "Utente non trovato. Per favore registrati prima di attivare un piano.",
-            });
+          return res.status(400).json({
+            error:
+              "Utente non trovato. Per favore registrati prima di attivare un piano.",
+          });
         }
 
         // Create new user - password is required
@@ -298,11 +296,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate payment for paid plans
       if (!isFreePlan) {
         if (!paymentMethod) {
-          return res
-            .status(400)
-            .json({
-              error: "Metodo di pagamento richiesto per piani a pagamento",
-            });
+          return res.status(400).json({
+            error: "Metodo di pagamento richiesto per piani a pagamento",
+          });
         }
 
         // Process payment with Stripe for credit card payments
@@ -1171,7 +1167,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const count = await sendUpcomingJobReminders();
         return res.json({ sent: count });
       } catch (e) {
-        console.log(`manual job reminders failed: ${String(e)}`, "notifications");
+        console.log(
+          `manual job reminders failed: ${String(e)}`,
+          "notifications"
+        );
         return res.status(500).json({ message: "Failed to run job reminders" });
       }
     }
@@ -1187,7 +1186,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const count = await processPlanRenewalReminders(7);
         return res.json({ sent: count });
       } catch (e) {
-        console.log(`manual renewal reminders failed: ${String(e)}`, "notifications");
+        console.log(
+          `manual renewal reminders failed: ${String(e)}`,
+          "notifications"
+        );
         return res
           .status(500)
           .json({ message: "Failed to run renewal reminders" });
@@ -1206,11 +1208,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Validate required fields
         if (!completedDate || actualDuration === undefined) {
-          return res
-            .status(400)
-            .json({
-              message: "Completed date and actual duration are required",
-            });
+          return res.status(400).json({
+            message: "Completed date and actual duration are required",
+          });
         }
 
         // Get the job
@@ -1345,7 +1345,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Log the activity data for debugging
-      console.log(`Creating activity: ${JSON.stringify(activityData)}`, "activities");
+      console.log(
+        `Creating activity: ${JSON.stringify(activityData)}`,
+        "activities"
+      );
 
       // If jobTypeIds is provided as a string, try to parse it as JSON
       if (
@@ -1480,7 +1483,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let { permissions, ...restData } = req.body;
 
       // Log the incoming data for debugging
-      console.log(`Creating role with data: ${JSON.stringify(req.body)}`, "roles");
+      console.log(
+        `Creating role with data: ${JSON.stringify(req.body)}`,
+        "roles"
+      );
 
       // Handle different formats of permissions
       if (permissions) {
@@ -1530,7 +1536,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
-        console.log(`Role validation error: ${validationError.message}`, "roles");
+        console.log(
+          `Role validation error: ${validationError.message}`,
+          "roles"
+        );
         return res.status(400).json({ message: validationError.message });
       }
       console.log(`Error creating role: ${error}`, "roles");
@@ -1607,7 +1616,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof ZodError) {
         const validationError = fromZodError(error);
-        console.log(`Role validation error: ${validationError.message}`, "roles");
+        console.log(
+          `Role validation error: ${validationError.message}`,
+          "roles"
+        );
         return res.status(400).json({ message: validationError.message });
       }
       console.log(`Error updating role: ${error}`, "roles");
@@ -2344,11 +2356,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Validate required fields
         if (!completedDate || actualDuration === undefined) {
-          return res
-            .status(400)
-            .json({
-              message: "Completed date and actual duration are required",
-            });
+          return res.status(400).json({
+            message: "Completed date and actual duration are required",
+          });
         }
 
         // Get the job activity
@@ -2472,7 +2482,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const plans = await storage.getSubscriptionPlans();
       return res.json(plans);
     } catch (error) {
-      console.log(`Error fetching subscription plans: ${error}`, "subscription");
+      console.log(
+        `Error fetching subscription plans: ${error}`,
+        "subscription"
+      );
       return res
         .status(500)
         .json({ message: "Failed to fetch subscription plans" });
@@ -2495,7 +2508,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(plan);
       } catch (error) {
-        console.log(`Error fetching subscription plan: ${error}`, "subscription");
+        console.log(
+          `Error fetching subscription plan: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch subscription plan" });
@@ -2601,7 +2617,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: validationError.message });
         }
 
-        console.log(`Error updating subscription plan: ${error}`, "subscription");
+        console.log(
+          `Error updating subscription plan: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to update subscription plan" });
@@ -2625,7 +2644,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.status(204).send();
       } catch (error) {
-        console.log(`Error deleting subscription plan: ${error}`, "subscription");
+        console.log(
+          `Error deleting subscription plan: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to delete subscription plan" });
@@ -2641,7 +2663,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscriptions = await storage.getUserSubscriptions();
       return res.json(subscriptions);
     } catch (error) {
-      console.log(`Error fetching user subscriptions: ${error}`, "subscription");
+      console.log(
+        `Error fetching user subscriptions: ${error}`,
+        "subscription"
+      );
       return res
         .status(500)
         .json({ message: "Failed to fetch user subscriptions" });
@@ -2664,7 +2689,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(subscription);
       } catch (error) {
-        console.log(`Error fetching user subscription: ${error}`, "subscription");
+        console.log(
+          `Error fetching user subscription: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch user subscription" });
@@ -2688,7 +2716,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(subscription);
       } catch (error) {
-        console.log(`Error fetching user subscription: ${error}`, "subscription");
+        console.log(
+          `Error fetching user subscription: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch user subscription" });
@@ -2785,7 +2816,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: validationError.message });
         }
 
-        console.log(`Error updating user subscription: ${error}`, "subscription");
+        console.log(
+          `Error updating user subscription: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to update user subscription" });
@@ -2809,7 +2843,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.status(204).send();
       } catch (error) {
-        console.log(`Error deleting user subscription: ${error}`, "subscription");
+        console.log(
+          `Error deleting user subscription: ${error}`,
+          "subscription"
+        );
         return res
           .status(500)
           .json({ message: "Failed to delete user subscription" });
@@ -2825,7 +2862,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const configs = await storage.getPlanConfigurations();
       return res.json(configs);
     } catch (error) {
-      console.log(`Error fetching plan configurations: ${error}`, "plan-config");
+      console.log(
+        `Error fetching plan configurations: ${error}`,
+        "plan-config"
+      );
       return res
         .status(500)
         .json({ message: "Failed to fetch plan configurations" });
@@ -2848,7 +2888,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(config);
       } catch (error) {
-        console.log(`Error fetching plan configuration: ${error}`, "plan-config");
+        console.log(
+          `Error fetching plan configuration: ${error}`,
+          "plan-config"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch plan configuration" });
@@ -2872,7 +2915,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json(config);
       } catch (error) {
-        console.log(`Error fetching user plan configuration: ${error}`, "plan-config");
+        console.log(
+          `Error fetching user plan configuration: ${error}`,
+          "plan-config"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch user plan configuration" });
@@ -2966,7 +3012,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: validationError.message });
         }
 
-        console.log(`Error updating plan configuration: ${error}`, "plan-config");
+        console.log(
+          `Error updating plan configuration: ${error}`,
+          "plan-config"
+        );
         return res
           .status(500)
           .json({ message: "Failed to update plan configuration" });
@@ -2990,7 +3039,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.status(204).send();
       } catch (error) {
-        console.log(`Error deleting plan configuration: ${error}`, "plan-config");
+        console.log(
+          `Error deleting plan configuration: ${error}`,
+          "plan-config"
+        );
         return res
           .status(500)
           .json({ message: "Failed to delete plan configuration" });
@@ -3006,7 +3058,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const settings = await storage.getGeneralSettings();
         return res.json(settings || null);
       } catch (error) {
-        console.log(`Error fetching general settings: ${error}`, "general-settings");
+        console.log(
+          `Error fetching general settings: ${error}`,
+          "general-settings"
+        );
         return res
           .status(500)
           .json({ message: "Failed to fetch general settings" });
@@ -3026,7 +3081,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const validationError = fromZodError(error);
           return res.status(400).json({ message: validationError.message });
         }
-        console.log(`Error saving general settings: ${error}`, "general-settings");
+        console.log(
+          `Error saving general settings: ${error}`,
+          "general-settings"
+        );
         return res
           .status(500)
           .json({ message: "Failed to save general settings" });
@@ -3090,11 +3148,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Check if user is an administrator type
         if (user.type !== "admin" && user.type !== "administrator") {
           console.log(`User type not allowed: ${user.type}`, "admin");
-          return res
-            .status(401)
-            .json({
-              message: "Access denied. Administrator privileges required.",
-            });
+          return res.status(401).json({
+            message: "Access denied. Administrator privileges required.",
+          });
         }
 
         // Check password (using the same hashing method as user registration)
@@ -4131,11 +4187,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(planUsage);
     } catch (error) {
       console.error("Error fetching plan usage metrics:", error);
-      res
-        .status(500)
-        .json({
-          error: "Errore nel recupero delle metriche di utilizzo dei piani",
-        });
+      res.status(500).json({
+        error: "Errore nel recupero delle metriche di utilizzo dei piani",
+      });
     }
   });
 
@@ -4287,12 +4341,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const webPages = await storage.getAllWebPages();
         res.json(webPages);
       } catch (error) {
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante il recupero delle pagine web",
-          });
+        res.status(500).json({
+          error:
+            "Si è verificato un errore durante il recupero delle pagine web",
+        });
       }
     }
   );
@@ -4309,12 +4361,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         res.json(webPage);
       } catch (error) {
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante il recupero della pagina web",
-          });
+        res.status(500).json({
+          error:
+            "Si è verificato un errore durante il recupero della pagina web",
+        });
       }
     }
   );
@@ -4351,19 +4401,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(webPage);
       } catch (error) {
         if (error instanceof ZodError) {
-          return res
-            .status(400)
-            .json({
-              error: "Dati della pagina web non validi",
-              details: error.format(),
-            });
-        }
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante la creazione della pagina web",
+          return res.status(400).json({
+            error: "Dati della pagina web non validi",
+            details: error.format(),
           });
+        }
+        res.status(500).json({
+          error:
+            "Si è verificato un errore durante la creazione della pagina web",
+        });
       }
     }
   );
@@ -4415,19 +4461,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedWebPage);
       } catch (error) {
         if (error instanceof ZodError) {
-          return res
-            .status(400)
-            .json({
-              error: "Dati della pagina web non validi",
-              details: error.format(),
-            });
-        }
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante l'aggiornamento della pagina web",
+          return res.status(400).json({
+            error: "Dati della pagina web non validi",
+            details: error.format(),
           });
+        }
+        res.status(500).json({
+          error:
+            "Si è verificato un errore durante l'aggiornamento della pagina web",
+        });
       }
     }
   );
@@ -4444,12 +4486,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         res.json({ success: true });
       } catch (error) {
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante l'eliminazione della pagina web",
-          });
+        res.status(500).json({
+          error:
+            "Si è verificato un errore durante l'eliminazione della pagina web",
+        });
       }
     }
   );
@@ -4470,12 +4510,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(webPage);
     } catch (error) {
-      res
-        .status(500)
-        .json({
-          error:
-            "Si è verificato un errore durante il recupero della pagina web",
-        });
+      res.status(500).json({
+        error: "Si è verificato un errore durante il recupero della pagina web",
+      });
     }
   });
 
@@ -4498,12 +4535,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.json(homepage);
       } catch (error) {
-        res
-          .status(500)
-          .json({
-            error:
-              "Si è verificato un errore durante il recupero della homepage",
-          });
+        res.status(500).json({
+          error: "Si è verificato un errore durante il recupero della homepage",
+        });
       }
     }
   );
