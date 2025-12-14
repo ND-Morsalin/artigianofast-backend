@@ -18,7 +18,14 @@ const app = express();
 // Enable CORS for mobile app - more permissive for mobile apps
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: ["http://localhost:5173",
+        "http://localhost:4173",
+        "https://artigianofast.com",
+        "http://localhost",          // Common for Capacitor webviews
+        "https://localhost",         // For secure contexts
+        "capacitor://localhost",     // Standard Capacitor scheme
+        "ionic://localhost"          // If using Ionic with Capacitor
+        ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
