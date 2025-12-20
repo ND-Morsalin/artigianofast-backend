@@ -101,8 +101,13 @@ router.post("/register", async (req: Request, res: Response) => {
     const newUser = await storage.createUser(userData);
     
     // Imposta l'utente nella sessione
-    (req.session as any).mobileUserId = newUser.id;
-    (req.session as any).userType = newUser.type;
+    // (req.session as any).mobileUserId = newUser.id;
+    // (req.session as any).userType = newUser.type;
+    res.cookie("mobileUserId",newUser.id, {
+      httpOnly:true,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+
+    } )
     
     // Create mobile session ID for mobile app (same as login)
     const mobileSessionId = `mobile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -138,15 +143,16 @@ router.get("/user", async (req: Request, res: Response) => {
     // Check authentication via mobile session header ONLY
     let userId: number | undefined;
     
-    if (req.headers['x-mobile-session-id']) {
-      const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-      if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
-        userId = global.mobileSessions[mobileSessionId];
-        if (process.env.DEBUG_PERMISSIONS) console.log(`✅ Mobile session authenticated: ${mobileSessionId} -> userId: ${userId}`);
-      } else {
-        console.log(`❌ Invalid mobile session: ${mobileSessionId}`);
-      }
-    }
+    // if (req.headers['x-mobile-session-id']) {
+    //   const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+    //   if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
+    //     userId = global.mobileSessions[mobileSessionId];
+    //     if (process.env.DEBUG_PERMISSIONS) console.log(`✅ Mobile session authenticated: ${mobileSessionId} -> userId: ${userId}`);
+    //   } else {
+    //     console.log(`❌ Invalid mobile session: ${mobileSessionId}`);
+    //   }
+    // }
+   userId =  req.cookies.mobileUserId 
     
     if (!userId) {
       if (process.env.DEBUG_PERMISSIONS) console.log(`❌ 
@@ -161,7 +167,7 @@ router.get("/user", async (req: Request, res: Response) => {
     }
 
     // Ottieni dati utente dal db
-    const user = await storage.getUser(userId);
+    const user = await storage.getUser(Number(userId));
     if (!user) {
       (req.session as any).mobileUserId = undefined;
       (req.session as any).userType = undefined;
@@ -278,6 +284,18 @@ router.post("/login", async (req: Request, res: Response) => {
         planId: planConfig?.planId,
         permissions
       });
+
+      const mobileData =  {
+        userId: user.id,
+        planId: planConfig?.planId,
+        mobileSessionId,
+        permissions
+      }
+    res.cookie("mobile_data",JSON.stringify(mobileData),{
+      httpOnly:true,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    })
+
     } catch (permErr) {
       console.warn("Unable to fetch plan permissions on login:", permErr);
     }
@@ -301,6 +319,7 @@ router.post("/logout", (req: Request, res: Response) => {
       console.log(`✅ Mobile session cleaned up: ${mobileSessionId}`);
     }
   }
+  res.clearCookie("mobile_data")
   
   res.status(200).json({ message: "Logout effettuato con successo" });
 });
@@ -329,18 +348,16 @@ router.post("/activate", async (req: Request, res: Response) => {
 router.put("/user", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+    // const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+    // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
+    //   return res.status(401).json({ error: "Non autenticato" });
+    // }
+    const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Ottieni dati utente dal db
     const user = await storage.getUser(userId);
     if (!user) {
-      (req.session as any).mobileUserId = undefined;
-      (req.session as any).userType = undefined;
       return res.status(401).json({ error: "Utente non trovato" });
     }
 
@@ -369,18 +386,18 @@ router.post("/change-password", async (req: Request, res: Response) => {
     }
 
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+    // const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+    // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
+    //   return res.status(401).json({ error: "Non autenticato" });
+    // }
     
-    const userId = global.mobileSessions[mobileSessionId];
+    // const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Ottieni dati utente dal db
     const user = await storage.getUser(userId);
     if (!user) {
-      (req.session as any).mobileUserId = undefined;
-      (req.session as any).userType = undefined;
       return res.status(401).json({ error: "Utente non trovato" });
     }
 
@@ -412,7 +429,8 @@ router.get("/jobs",
   async (req: Request, res: Response) => {
     try {
       // Controlla se l'utente è autenticato
-      const userId = (req.session as any).mobileUserId;
+       const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
       if (!userId) {
         return res.status(401).json({ error: "Non autenticato" });
       }
@@ -434,10 +452,8 @@ router.get("/jobs",
 router.get("/jobs/assigned", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Get jobs assigned to the current user
     const assignedJobs = await storage.getJobsByUserId(userId);
@@ -458,12 +474,14 @@ router.get("/jobs/assigned", async (req: Request, res: Response) => {
 router.get("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+    // const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+    // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
+    //   return res.status(401).json({ error: "Non autenticato" });
+    // }
     
-    const userId = global.mobileSessions[mobileSessionId];
+    // const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     const job = await storage.getJob(jobId);
@@ -486,12 +504,15 @@ router.get("/jobs/:id", async (req: Request, res: Response) => {
 router.put("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+    // const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+    // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
+    //   return res.status(401).json({ error: "Non autenticato" });
+    // }
     
-    const userId = global.mobileSessions[mobileSessionId];
+    // const userId = global.mobileSessions[mobileSessionId];
+
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to edit jobs
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -533,12 +554,8 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
 router.delete("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to delete jobs
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -583,10 +600,8 @@ router.delete("/jobs/:id", async (req: Request, res: Response) => {
 router.get("/calendar", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const { startDate, endDate, view } = req.query;
     
@@ -627,10 +642,8 @@ router.get("/calendar", async (req: Request, res: Response) => {
 router.get("/calendar/today", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -652,10 +665,8 @@ router.get("/calendar/today", async (req: Request, res: Response) => {
 router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     const { assignedUserId } = req.body;
@@ -694,10 +705,8 @@ router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
 router.get("/users/available", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Get all active users
     const users = await storage.getUsers();
@@ -723,10 +732,8 @@ router.get("/users/available", async (req: Request, res: Response) => {
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobTypes = await storage.getJobTypes();
     res.json(jobTypes);
@@ -740,10 +747,8 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.post("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated and is admin
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const currentUser = await storage.getUser(userId);
     if (!currentUser || currentUser.type !== 'admin') {
@@ -773,10 +778,8 @@ router.post("/job-types", async (req: Request, res: Response) => {
 router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     const { note, noteType = 'general' } = req.body;
@@ -819,10 +822,8 @@ router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
 router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     const { photoUrl, description } = req.body;
@@ -871,10 +872,8 @@ router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     
@@ -905,10 +904,8 @@ router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     const { collaboratorId, role } = req.body;
@@ -953,10 +950,8 @@ router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     
@@ -985,10 +980,8 @@ router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/team", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const userId = (req.session as any).mobileUserId;
-    if (!userId) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.id);
     
@@ -1054,12 +1047,8 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
     }
 
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Ottieni il piano di abbonamento
     const plan = await storage.getSubscriptionPlan(planId);
@@ -1190,12 +1179,8 @@ router.get("/subscription-plans/:id", async (req: Request, res: Response) => {
 router.get("/user-subscription", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Ottieni abbonamento
     const subscription = await storage.getUserSubscriptionByUserId(userId);
@@ -1221,12 +1206,8 @@ router.get("/user-subscription", async (req: Request, res: Response) => {
 router.get("/permissions/activity-management", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Check if activity management is enabled for this user's plan
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1246,12 +1227,8 @@ router.get("/permissions/activity-management", async (req: Request, res: Respons
 router.get("/stats", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Get user data
     const user = await storage.getUser(userId);
@@ -1305,12 +1282,8 @@ router.get("/stats", async (req: Request, res: Response) => {
 router.get("/today-appointments", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Get user data
     const user = await storage.getUser(userId);
@@ -1379,10 +1352,8 @@ router.get("/today-appointments", async (req: Request, res: Response) => {
 router.get("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     const clients = await storage.getClients();
     return res.json(clients);
@@ -1681,12 +1652,8 @@ router.get("/collaborators/:id", async (req: Request, res: Response) => {
 router.post("/collaborators", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to create collaborators
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1711,12 +1678,8 @@ router.post("/collaborators", async (req: Request, res: Response) => {
 router.patch("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to edit collaborators
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1747,12 +1710,8 @@ router.patch("/collaborators/:id", async (req: Request, res: Response) => {
 router.delete("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to delete collaborators
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1784,12 +1743,8 @@ router.delete("/collaborators/:id", async (req: Request, res: Response) => {
 router.get("/all-jobs", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Get user's plan configuration for permissions and feature visibility
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1834,13 +1789,8 @@ router.post("/jobs", async (req: Request, res: Response) => {
   try {
     console.log("🚀 POST /jobs route called");
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      console.log("❌ Authentication failed");
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     console.log(`✅ Authenticated user: ${userId}`);
     
     // Set userId in session for plan enforcement
@@ -1894,16 +1844,9 @@ router.post("/jobs", async (req: Request, res: Response) => {
 router.patch("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
-    
-    // Set userId in session for plan enforcement
-    (req.session as any).userId = userId;
-    
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
+  
     // Check permission to edit jobs
     const { PlanEnforcementService } = await import('../services/planEnforcement');
     const hasPermission = await PlanEnforcementService.hasPermission(userId, 'job.edit');
@@ -1929,15 +1872,8 @@ router.patch("/jobs/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
-    
-    // Set userId in session for plan enforcement
-    (req.session as any).userId = userId;
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Check permission to complete jobs
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -1972,12 +1908,8 @@ router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
 router.get("/all-clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const clients = await storage.getClients();
     
@@ -2016,12 +1948,8 @@ router.get("/all-clients", async (req: Request, res: Response) => {
 router.post("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to create clients
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -2047,12 +1975,8 @@ router.post("/clients", async (req: Request, res: Response) => {
 router.patch("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Check if user has permission to edit clients
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -2081,12 +2005,9 @@ router.patch("/clients/:id", async (req: Request, res: Response) => {
 // Update client (PUT alias)
 router.put("/clients/:id", async (req: Request, res: Response) => {
   try {
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
-    const userId = global.mobileSessions[mobileSessionId];
     const { PlanEnforcementService } = await import('../services/planEnforcement');
     const canEditClients = await PlanEnforcementService.hasPermission(userId, 'client.edit');
     if (!canEditClients) {
@@ -2113,12 +2034,8 @@ router.put("/clients/:id", async (req: Request, res: Response) => {
 router.delete("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId 
 
     // Check if user has permission to delete clients
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -2148,12 +2065,8 @@ router.delete("/clients/:id", async (req: Request, res: Response) => {
 router.get("/plan-configuration", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Get user's plan configuration
     const { PlanEnforcementService } = await import('../services/planEnforcement');
@@ -2180,12 +2093,8 @@ router.get("/plan-configuration", async (req: Request, res: Response) => {
 // Debug endpoint to check user subscriptions
 router.get("/debug-plan", async (req: Request, res: Response) => {
   try {
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
     
     // Get all user subscriptions
     const allSubscriptions = await storage.getUserSubscriptions();
@@ -2217,20 +2126,22 @@ router.get("/debug-plan", async (req: Request, res: Response) => {
 
 // Get user permissions for mobile app
 router.get("/permissions", async (req: Request, res: Response) => {
+ const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
   try {
     if (process.env.DEBUG_PERMISSIONS) console.log('🚀 PERMISSIONS ENDPOINT CALLED');
     // Check mobile session authentication
+     
     const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
+    if (!userId) {
       console.log("❌ Permissions endpoint - Invalid mobile session:", {
         mobileSessionId,
         globalSessionsExists: !!global.mobileSessions,
         globalSessionsKeys: global.mobileSessions ? Object.keys(global.mobileSessions) : []
       });
       return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+    } 
+
     if (process.env.DEBUG_PERMISSIONS) console.log("✅ Permissions endpoint - Valid mobile session:", { mobileSessionId, userId });
 
     // Get user data
@@ -2404,12 +2315,8 @@ router.get("/permissions", async (req: Request, res: Response) => {
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobTypes = await storage.getJobTypes();
     res.json(jobTypes);
@@ -2423,12 +2330,8 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.get("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const activities = await storage.getActivities();
     res.json(activities);
@@ -2444,12 +2347,8 @@ router.get("/activities", async (req: Request, res: Response) => {
 router.get("/notification-preferences", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // For now, return default preferences
     // In a real app, you'd fetch from a user_preferences table
@@ -2479,12 +2378,8 @@ router.get("/notification-preferences", async (req: Request, res: Response) => {
 router.patch("/notification-preferences", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // For now, just return the updated preferences
     // In a real app, you'd save to a user_preferences table
@@ -2503,12 +2398,8 @@ router.patch("/notification-preferences", async (req: Request, res: Response) =>
 router.get("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // For now, return default company data
     // In a real app, you'd fetch from a company table
@@ -2538,12 +2429,8 @@ router.get("/company", async (req: Request, res: Response) => {
 router.patch("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // For now, just return the updated company data
     // In a real app, you'd save to a company table
@@ -2560,12 +2447,8 @@ router.patch("/company", async (req: Request, res: Response) => {
 router.post("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const newActivity = await storage.createActivity(req.body);
     res.status(201).json(newActivity);
@@ -2579,12 +2462,8 @@ router.post("/activities", async (req: Request, res: Response) => {
 router.patch("/activities/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const activityId = Number(req.params.id);
     const updatedActivity = await storage.updateActivity(activityId, req.body);
@@ -2604,12 +2483,8 @@ router.patch("/activities/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.jobId);
     const { activityId, notes, estimatedDuration } = req.body;
@@ -2638,12 +2513,8 @@ router.post("/jobs/:jobId/activities", async (req: Request, res: Response) => {
 router.post("/job-activities/:id/complete", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobActivityId = Number(req.params.id);
     const { actualDuration, notes, photos } = req.body;
@@ -2671,12 +2542,8 @@ router.post("/job-activities/:id/complete", async (req: Request, res: Response) 
 router.get("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     const jobId = Number(req.params.jobId);
     const jobActivities = await storage.getJobActivitiesByJob(jobId);
@@ -2699,12 +2566,8 @@ router.put("/subscriptions/:subscriptionId", async (req: Request, res: Response)
     }
 
     // Check mobile session authentication
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
-      return res.status(401).json({ error: "Non autenticato" });
-    }
-    
-    const userId = global.mobileSessions[mobileSessionId];
+     const mobileData = JSON.parse(req.cookies.mobile_data)
+    const userId = mobileData.userId
 
     // Get current subscription
     const currentSubscription = await storage.getUserSubscription(parseInt(subscriptionId));

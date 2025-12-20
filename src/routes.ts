@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import "express-session";
+// import "express-session";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import mysql from "mysql2/promise";
@@ -37,19 +37,20 @@ import crypto from "crypto";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 import Stripe from "stripe";
+import { JwtInstance } from "./jwt/jwt";
 
 // Extend session interface
-declare module "express-session" {
-  interface SessionData {
-    userId?: number;
-    userType?: string;
-    admin?: {
-      isAuthenticated: boolean;
-      username: string;
-      role: string;
-    };
-  }
+// declare module "express-session" {
+interface SessionData {
+  userId?: number;
+  userType?: string;
+  admin?: {
+    isAuthenticated: boolean;
+    username: string;
+    role: string;
+  };
 }
+// }
 
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -196,11 +197,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Remove password from response
       const { password: _, ...userResponse } = newUser;
 
-      // Set user session
-      if (req.session) {
-        (req.session as any).userId = newUser.id;
-        (req.session as any).userType = newUser.type;
-      }
+      // Set user cookie
+
+      res.cookie("userId", newUser.id, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
+      res.cookie("userType", newUser.type, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
 
       return res.status(201).json({
         message: "User registered successfully",
@@ -393,12 +399,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status,
       });
 
-      // Set user session
-      if (req.session) {
-        (req.session as any).userId = user.id;
-        (req.session as any).userType = user.type;
-      }
+      // Set user cookie
 
+      res.cookie("userId", user.id, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
+      res.cookie("userType", user.type, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
       // Remove password from response
       const { password: _, ...userResponse } = user;
 
@@ -452,12 +462,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Account is deactivated" });
       }
 
-      // Set user session
-      if (req.session) {
-        (req.session as any).userId = user.id;
-        (req.session as any).userType = user.type;
-      }
-
+      // Set user cookies
+      res.cookie("userId", user.id, { 
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
+      res.cookie("userType", user.type, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+      });
       // Remove password from response
       const { password: _, ...userResponse } = user;
 
@@ -473,16 +486,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // User logout
   app.post("/api/auth/logout", (req: Request, res: Response) => {
-    if (req.session) {
-      req.session.destroy((err) => {
-        if (err) {
-          return res.status(500).json({ message: "Failed to logout" });
-        }
-        return res.json({ message: "Logout successful" });
-      });
-    } else {
-      return res.json({ message: "No active session" });
-    }
+    res.clearCookie("userId");
+    res.clearCookie("userType");
+    return res.json({ message: "Logout successful" });
   });
 
   // Forgot password (generate reset token)
@@ -545,11 +551,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user
   app.get("/api/auth/me", async (req: Request, res: Response) => {
     try {
-      if (!req.session || !(req.session as any).userId) {
+      if (!req.cookies.userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const user = await storage.getUser((req.session as any).userId);
+      const user = await storage.getUser(Number(req.cookies.userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -568,11 +574,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/users", async (req: Request, res: Response) => {
     try {
       // Check if user is admin
-      if (!req.session || !(req.session as any).userId) {
+      if (!req.cookies.userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const currentUser = await storage.getUser((req.session as any).userId);
+      const currentUser = await storage.getUser( Number(req.cookies.userId));
       if (!currentUser || currentUser.type !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -594,12 +600,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get specific user
   app.get("/api/users/:id", async (req: Request, res: Response) => {
     try {
-      if (!req.session || !(req.session as any).userId) {
+      if (!req.cookies.userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
       const userId = Number(req.params.id);
-      const currentUser = await storage.getUser((req.session as any).userId);
+      const currentUser = await storage.getUser( Number(req.cookies.userId));
 
       // Users can only access their own data, unless they're admin
       if (currentUser?.type !== "admin" && currentUser?.id !== userId) {
@@ -624,12 +630,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user
   app.put("/api/users/:id", async (req: Request, res: Response) => {
     try {
-      if (!req.session || !(req.session as any).userId) {
+      if (!req.cookies.userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
       const userId = Number(req.params.id);
-      const currentUser = await storage.getUser((req.session as any).userId);
+      const currentUser = await storage.getUser( Number(req.cookies.userId));
 
       // Users can only update their own data, unless they're admin
       if (currentUser?.type !== "admin" && currentUser?.id !== userId) {
@@ -696,7 +702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/clients/:id", async (req: Request, res: Response) => {
     try {
       // Check if user has permission to edit clients
-      const userId = (req.session as any).userId;
+      const userId = req.cookies.userId;
       if (userId) {
         const { PlanEnforcementService } = await import(
           "./services/planEnforcement"
@@ -738,7 +744,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/clients/:id", async (req: Request, res: Response) => {
     try {
       // Check if user has permission to delete clients
-      const userId = (req.session as any).userId;
+      const userId = req.cookies.userId;
       if (userId) {
         const { PlanEnforcementService } = await import(
           "./services/planEnforcement"
@@ -3112,19 +3118,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .update(password)
           .digest("hex");
         if (hashedPassword === ADMIN_PASSWORD_HASH) {
-          // Create Super Admin session
-          if (!req.session) {
-            return res.status(500).json({ message: "Session not available" });
-          }
+      
 
-          req.session.admin = {
+          const adminData = {
             isAuthenticated: true,
             username: ADMIN_USERNAME,
             role: "superadmin",
           };
+          // set cookie instate of session
+          res.cookie("admin", JSON.stringify(adminData), {
+            httpOnly: true,
+            // cookie expires in 30 days
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+          });
 
+          // set cookie options for security
+          const jwtToken = await JwtInstance.generateTokens({
+            isAuthenticated: true,
+            username: ADMIN_USERNAME,
+            role: "superadmin",
+          });
+          console.log({ jwtToken });
           return res.status(200).json({
             message: "Login successful",
+            jwtToken,
             user: {
               username: ADMIN_USERNAME,
               role: "superadmin",
@@ -3168,19 +3185,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(401).json({ message: "Invalid credentials" });
         }
 
-        // Create Administrator session
-        if (!req.session) {
-          return res.status(500).json({ message: "Session not available" });
-        }
+        
 
-        req.session.admin = {
+        const adminData = {
           isAuthenticated: true,
           username: user.username,
           role: "administrator",
         };
+        res.cookie("admin", JSON.stringify(adminData), {
+          httpOnly: true,
+          // cookie expires in 30 days
+          maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
+        const jwtToken = await JwtInstance.generateTokens({
+          isAuthenticated: true,
+          username: ADMIN_USERNAME,
+          role: "superadmin",
+        }); // set cookie options for security
+        res.cookie("admin_session", jwtToken, {
+          httpOnly: true,
+          // cookie expires in 30 days
+          maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
+        console.log({ jwtToken });
 
         return res.status(200).json({
           message: "Login successful",
+          jwtToken,
           user: {
             username: user.username,
             role: "administrator",
@@ -3200,32 +3233,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Check admin session
   app.get("/api/admin/session", (req: Request, res: Response) => {
-    if (req.session && req.session.admin && req.session.admin.isAuthenticated) {
+
+    const tokens = {
+      jwtToken: req.cookies.admin_session || null,
+    };
+    console.log({tokens}, "this token from session check");
+    const adminData = JSON.parse(req.cookies.admin || "{}");
+
+    if (req.cookies.admin && adminData.isAuthenticated) {
       return res.status(200).json({
         isAuthenticated: true,
         user: {
-          username: req.session.admin.username,
-          role: req.session.admin.role,
+          username: adminData.username,
+          role: adminData.role,
         },
       });
     }
 
     return res.status(401).json({
       isAuthenticated: false,
+      tokens,
     });
   });
 
   // Admin logout
   app.post("/api/admin/logout", (req: Request, res: Response) => {
-    if (req.session && req.session.admin) {
-      req.session.admin = undefined;
-      req.session.destroy((err) => {
-        if (err) {
-          console.log(`Error destroying session: ${err}`, "admin");
-          return res.status(500).json({ message: "Logout failed" });
-        }
+    const adminData = JSON.parse(req.cookies.admin || "{}");
+    if (req.cookies.admin) {
+      res.clearCookie("admin")
+       
         res.status(200).json({ message: "Logout successful" });
-      });
+    
     } else {
       res.status(200).json({ message: "Already logged out" });
     }
@@ -3330,9 +3368,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/stats", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      // if (!req.session || !req.session.admin || !req.session.admin.isAuthenticated) {
-      //   return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
       // Ottenere i dati necessari
       const users = await storage.getUsers();
@@ -3465,9 +3504,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/stats/advanced", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      // if (!req.session || !req.session.admin || !req.session.admin.isAuthenticated) {
-      //   return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
 
       // Parametri di filtro
       const period = (req.query.period as string) || "month";
@@ -3749,12 +3790,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin logout
   app.post("/api/admin/logout", (req: Request, res: Response) => {
-    if (req.session) {
-      req.session.admin = undefined;
+    if (req.cookies.admin) {
+       res.clearCookie('admin')
       return res.status(200).json({ message: "Logout successful" });
     }
 
-    return res.status(500).json({ message: "Session not available" });
+    return res.status(500).json({ message: "cookie not available" });
   });
 
   // Get all users (administrators and mobile users)
@@ -3762,9 +3803,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Temporaneamente commentato per sviluppo
       // Verifica autenticazione admin
-      // if (!req.session.admin || !req.session.admin.isAuthenticated) {
-      //   return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
 
       // Ottieni tutti gli utenti dal database
       const allUsers = await storage.getUsers();
@@ -3796,9 +3839,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Temporaneamente commentato per sviluppo
       // Verifica autenticazione admin
-      // if (!req.session.admin || !req.session.admin.isAuthenticated) {
-      //   return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
 
       const userId = Number(req.params.id);
       const user = await storage.getUser(userId);
@@ -3817,8 +3862,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new administrator
   app.post("/api/administrators", async (req: Request, res: Response) => {
     try {
+      console.log(req.headers["x-mobile-session-id"]);
       // Verifica autenticazione admin
-      if (!req.session.admin || !req.session.admin.isAuthenticated) {
+     const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3851,9 +3898,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/administrators/:id", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      // if (!req.session.admin || !req.session.admin.isAuthenticated) {
-      //  return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
 
       const userId = Number(req.params.id);
       const userData = req.body;
@@ -3877,9 +3926,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/administrators/:id", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      // if (!req.session.admin || !req.session.admin.isAuthenticated) {
-      //  return res.status(401).json({ message: "Unauthorized" });
-      // }
+      const adminData = JSON.parse(req.cookies.admin)
+      if (!req.cookies.admin || !adminData.isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
 
       const userId = Number(req.params.id);
       const deleted = await storage.deleteUser(userId);

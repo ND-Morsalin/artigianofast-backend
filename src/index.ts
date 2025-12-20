@@ -1,10 +1,13 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
-import session from "express-session";
+// import session from "express-session";
 import MemoryStore from "memorystore";
 import cors from "cors";
 import multer from "multer";
+import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
+
+// const SessionStore = MemoryStore(session);
 
 import { registerMobileSpotEndpoints } from "./api-spots";
 import { initDB } from "./db";
@@ -64,25 +67,29 @@ const upload = multer({
 
 // Add multer middleware for multipart/form-data
 app.use(upload.any());
+app.use(cookieParser(
+  process.env.COOKIE_SECRET || "artisan-project-manager-cookie-secret-key"
+));
 
-// Setup session middleware
-const SessionStore = MemoryStore(session);
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "artisan-project-manager-secret-key",
-    resave: false,
-    saveUninitialized: false,
-    store: new SessionStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
-    }),
-    cookie: {
-      secure: false, // Allow HTTP for mobile app development
-      httpOnly: true,
-      sameSite: "lax", // Allow cross-origin requests from mobile app
-      maxAge: 86400000, // 24 hours
-    },
-  })
-);
+// app.use(
+//   session({
+//     name: "admin.sid",
+//     secret: process.env.SESSION_SECRET || "artisan-project-manager-secret-key",
+//     resave: false,
+//     saveUninitialized: false,
+
+//     store: new SessionStore({
+//       checkPeriod: 86400000,
+//     }),
+
+//     cookie: {
+//       httpOnly: true,
+//       secure: false,       // true in HTTPS
+//       sameSite: "lax",     // OK for localhost WEB
+//       maxAge: 24 * 60 * 60 * 1000,
+//     },
+//   })
+// );
 
 app.use((req, res, next) => {
   const start = Date.now();
