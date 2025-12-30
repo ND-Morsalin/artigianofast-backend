@@ -551,11 +551,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user
   app.get("/api/auth/me", async (req: Request, res: Response) => {
     try {
-      if (!req.cookies.userId) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
+      const mobileData = req.mobileData as unknown as any;
+      const userId = mobileData?.userId ;
 
-      const user = await storage.getUser(Number(req.cookies.userId));
+      const user = await storage.getUser(Number(userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -573,12 +572,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all users (for admin)
   app.get("/api/users", async (req: Request, res: Response) => {
     try {
-      // Check if user is admin
-      if (!req.cookies.userId) {
+      const mobileData = req.mobileData as unknown as any;
+      const userId = mobileData?.userId ;
+      if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const currentUser = await storage.getUser( Number(req.cookies.userId));
+      const currentUser = await storage.getUser( Number(userId));
       if (!currentUser || currentUser.type !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -600,12 +600,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get specific user
   app.get("/api/users/:id", async (req: Request, res: Response) => {
     try {
-      if (!req.cookies.userId) {
+       const mobileData = req.mobileData as unknown as any;
+      const adminData =   req.adminData  as unknown as any;
+      if (!mobileData?.userId ) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
       const userId = Number(req.params.id);
-      const currentUser = await storage.getUser( Number(req.cookies.userId));
+      const currentUser = await storage.getUser( Number(mobileData?.userId));
 
       // Users can only access their own data, unless they're admin
       if (currentUser?.type !== "admin" && currentUser?.id !== userId) {
@@ -630,12 +632,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user
   app.put("/api/users/:id", async (req: Request, res: Response) => {
     try {
-      if (!req.cookies.userId) {
+       const mobileData = req.mobileData as unknown as any;
+      if (!mobileData?.userId ) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
       const userId = Number(req.params.id);
-      const currentUser = await storage.getUser( Number(req.cookies.userId));
+      const currentUser = await storage.getUser( Number(mobileData?.userId));
 
       // Users can only update their own data, unless they're admin
       if (currentUser?.type !== "admin" && currentUser?.id !== userId) {
@@ -702,7 +705,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/clients/:id", async (req: Request, res: Response) => {
     try {
       // Check if user has permission to edit clients
-      const userId = req.cookies.userId;
+       const mobileData = req.mobileData as unknown as any; 
+      const userId = mobileData?.userId  
       if (userId) {
         const { PlanEnforcementService } = await import(
           "./services/planEnforcement"
@@ -744,7 +748,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/clients/:id", async (req: Request, res: Response) => {
     try {
       // Check if user has permission to delete clients
-      const userId = req.cookies.userId;
+       const mobileData = req.mobileData as unknown as any;
+      const userId = mobileData?.userId ;
       if (userId) {
         const { PlanEnforcementService } = await import(
           "./services/planEnforcement"
@@ -1055,7 +1060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // INVOICES API
-  app.get("/api/invoices", async (req: Request, res: Response) => {
+  app.get("/api/mobile/invoices", async (req: Request, res: Response) => {
     try {
       // const invoices = await storage.getInvoices(); // Method doesn't exist
       const invoices: any[] = [];
@@ -1246,6 +1251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all job types
   app.get("/api/jobtypes", async (req: Request, res: Response) => {
     const jobTypes = await storage.getJobTypes();
+    console.log("Retrieved job types:", jobTypes);
     return res.json(jobTypes);
   });
 
@@ -3119,7 +3125,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .digest("hex");
         if (hashedPassword === ADMIN_PASSWORD_HASH) {
       
-
           const adminData = {
             isAuthenticated: true,
             username: ADMIN_USERNAME,
@@ -3233,14 +3238,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Check admin session
   app.get("/api/admin/session", (req: Request, res: Response) => {
+    console.log(req.mobileData, "mobile data in session check");
+    console.log(req.adminData, "admin data in session check");
+    const adminData = req.adminData as unknown as any;
 
-    const tokens = {
-      jwtToken: req.cookies.admin_session || null,
-    };
-    console.log({tokens}, "this token from session check");
-    const adminData = JSON.parse(req.cookies.admin || "{}");
-
-    if (req.cookies.admin && adminData.isAuthenticated) {
+    if ( adminData.isAuthenticated) {
       return res.status(200).json({
         isAuthenticated: true,
         user: {
@@ -3252,7 +3254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     return res.status(401).json({
       isAuthenticated: false,
-      tokens,
+      message: "Not authenticated",
     });
   });
 
@@ -3368,8 +3370,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/stats", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData = req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3493,6 +3495,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         revenueMonthly,
         totalRevenue,
         recentLogins: recentLogins || [],
+        users: users.length,
+        clients: clients.length,
+        jobs: jobs.length,
       });
     } catch (error) {
       console.error("Error fetching admin stats:", error);
@@ -3504,8 +3509,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/stats/advanced", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData =  req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3803,8 +3808,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Temporaneamente commentato per sviluppo
       // Verifica autenticazione admin
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData = req.adminData as unknown as any;
+
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3839,8 +3845,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Temporaneamente commentato per sviluppo
       // Verifica autenticazione admin
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData = req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3864,8 +3870,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(req.headers["x-mobile-session-id"]);
       // Verifica autenticazione admin
-     const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+     const adminData = req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3898,8 +3904,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/administrators/:id", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData = req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
@@ -3926,8 +3932,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/administrators/:id", async (req: Request, res: Response) => {
     try {
       // Verifica autenticazione admin (temporaneamente disabilitata per sviluppo)
-      const adminData = JSON.parse(req.cookies.admin)
-      if (!req.cookies.admin || !adminData.isAuthenticated) {
+      const adminData = req.adminData as unknown as any;
+      if (!adminData.isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 

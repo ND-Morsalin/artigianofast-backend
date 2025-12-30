@@ -292,7 +292,7 @@ export const jobTypes = mysqlTable("job_types", {
     .primaryKey(),
   name: varchar("name", { length: 255 }).notNull().unique(),
   description: text("description"),
-  sectorIds: text("sector_ids"), // JSON con array di ID per supportare più settori
+ sectorIds: text("sector_ids"), // JSON con array di ID per supportare più settori
 });
 
 export const insertJobTypeSchema = createInsertSchema(jobTypes)

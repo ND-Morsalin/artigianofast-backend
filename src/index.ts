@@ -1,12 +1,19 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
-// import session from "express-session";
-import MemoryStore from "memorystore";
 import cors from "cors";
 import multer from "multer";
 import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 
+declare global {
+  namespace Express {
+    interface Request {
+      mobileData?: IJWtPayload | IMobileDataTokenPayload | string | null;
+      adminData?: IMobileDataTokenPayload | IJWtPayload | string | null;
+      mobileSessionId?: string | string[];
+    }
+  }
+}
 // const SessionStore = MemoryStore(session);
 
 import { registerMobileSpotEndpoints } from "./api-spots";
@@ -15,20 +22,22 @@ import {
   sendUpcomingJobReminders,
   processPlanRenewalReminders,
 } from "./services/notifications";
+import { IJWtPayload, IMobileDataTokenPayload, JwtInstance } from "./jwt/jwt";
 
 const app = express();
 
 // Enable CORS for mobile app - more permissive for mobile apps
 app.use(
   cors({
-    origin: ["http://localhost:5173",
-        "http://localhost:4173",
-        "https://artigianofast.com",
-        "http://localhost",          // Common for Capacitor webviews
-        "https://localhost",         // For secure contexts
-        "capacitor://localhost",     // Standard Capacitor scheme
-        "ionic://localhost"          // If using Ionic with Capacitor
-        ],
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "https://artigianofast.com",
+      "http://localhost", // Common for Capacitor webviews
+      "https://localhost", // For secure contexts
+      "capacitor://localhost", // Standard Capacitor scheme
+      "ionic://localhost", // If using Ionic with Capacitor
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
@@ -38,6 +47,9 @@ app.use(
       "Accept",
       "Origin",
       "x-mobile-session-id",
+      "x-mobile_data_token",
+      "x-refresh-token",
+      "x-admin_access_token",
     ],
   })
 );
@@ -67,9 +79,11 @@ const upload = multer({
 
 // Add multer middleware for multipart/form-data
 app.use(upload.any());
-app.use(cookieParser(
-  process.env.COOKIE_SECRET || "artisan-project-manager-cookie-secret-key"
-));
+app.use(
+  cookieParser(
+    process.env.COOKIE_SECRET || "artisan-project-manager-cookie-secret-key"
+  )
+);
 
 // app.use(
 //   session({
@@ -117,6 +131,19 @@ app.use((req, res, next) => {
       console.log(logLine);
     }
   });
+  // set req to user data
+  // console.log(req.headers)
+  const mobileDataToken = req.headers["x-mobile_data_token"];
+  const adminAccessToken = req.headers["x-admin_access_token"];
+  const mobileSessionId = req.headers["x-mobile-session-id"];
+
+  const mobileData = JwtInstance.verifyToken(mobileDataToken as string);
+  const adminData = JwtInstance.verifyToken(adminAccessToken as string);
+  // console.log({ mobileData, adminData });
+
+  req.mobileData = mobileData;
+  req.adminData = adminData;
+  req.mobileSessionId = mobileSessionId;
 
   next();
 });

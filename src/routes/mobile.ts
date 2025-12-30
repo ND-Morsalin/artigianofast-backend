@@ -1,11 +1,19 @@
 import { Request, Response, Router } from "express";
 import { storage } from "../storage";
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from "bcrypt";
 import Stripe from "stripe";
+import {
+  requireFeature,
+  requirePageAccess,
+  filterResponseByPlan,
+  addPlanInfo,
+} from "../middleware/planEnforcement";
+import { JwtInstance } from "../jwt/jwt";
+import PlanEnforcementService from "../services/planEnforcement";
 
 // Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-11-17.clover',
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  apiVersion: "2025-11-17.clover",
 });
 
 // Declare global mobile sessions storage
@@ -17,14 +25,6 @@ declare global {
 if (!global.mobileSessions) {
   global.mobileSessions = {};
 }
-import { 
-  requireFeature, 
-  requirePageAccess, 
-  requirePermission, 
-  checkFeatureLimit,
-  filterResponseByPlan,
-  addPlanInfo 
-} from "../middleware/planEnforcement";
 
 const router = Router();
 
@@ -36,33 +36,33 @@ async function hashPassword(password: string) {
 
 async function comparePasswords(supplied: string, stored: string) {
   try {
-    console.log('comparePasswords called with:', {
-      supplied: supplied ? 'provided' : 'missing',
-      stored: stored ? 'provided' : 'missing',
-      storedStartsWith: stored ? stored.substring(0, 4) : 'n/a'
+    console.log("comparePasswords called with:", {
+      supplied: supplied ? "provided" : "missing",
+      stored: stored ? "provided" : "missing",
+      storedStartsWith: stored ? stored.substring(0, 4) : "n/a",
     });
-    
+
     // 1. Test per formato bcrypt (inizia con $)
-    if (stored && stored.startsWith('$2b$')) {
-      console.log('Usando confronto bcrypt');
+    if (stored && stored.startsWith("$2b$")) {
+      console.log("Usando confronto bcrypt");
       const result = await bcrypt.compare(supplied, stored);
-      console.log('bcrypt result:', result);
+      console.log("bcrypt result:", result);
       return result;
     }
-    
+
     // 2. Password in chiaro - per test e sviluppo
-    console.log('Usando confronto testo semplice');
-    console.log('Plain text comparison:', {
+    console.log("Usando confronto testo semplice");
+    console.log("Plain text comparison:", {
       supplied,
       stored,
-      match: supplied === stored
+      match: supplied === stored,
     });
-    
+
     if (supplied === stored) {
-      console.warn('WARNING: Using plain text password comparison!');
+      console.warn("WARNING: Using plain text password comparison!");
       return true;
     }
-    
+
     return false;
   } catch (error) {
     console.error("Password comparison error:", error);
@@ -74,95 +74,109 @@ async function comparePasswords(supplied: string, stored: string) {
 router.post("/register", async (req: Request, res: Response) => {
   try {
     const { email, password, fullName, username } = req.body;
-    
+
     if (!email || !password) {
       return res.status(400).json({ error: "Email e password sono richiesti" });
     }
-    
+
     // Controlla se esiste già un utente con questa email
     const existingUser = await storage.getUserByEmail(email);
     if (existingUser) {
-      return res.status(400).json({ error: "Questa email è già registrata. Prova ad effettuare il login o usa un'altra email per registrarti." });
+      return res.status(400).json({
+        error:
+          "Questa email è già registrata. Prova ad effettuare il login o usa un'altra email per registrarti.",
+      });
     }
-    
+
     // Genera hash della password
     const hashedPassword = await hashPassword(password);
-    
+
     // Crea nuovo utente
     const userData = {
       email,
       password: hashedPassword,
-      fullName: fullName || username || email.split('@')[0],
-      username: username || email.split('@')[0],
+      fullName: fullName || username || email.split("@")[0],
+      username: username || email.split("@")[0],
       isActive: true,
-      type: "client"
+      type: "client",
     };
-    
+
     const newUser = await storage.createUser(userData);
-    
+
     // Imposta l'utente nella sessione
     // (req.session as any).mobileUserId = newUser.id;
     // (req.session as any).userType = newUser.type;
-    res.cookie("mobileUserId",newUser.id, {
-      httpOnly:true,
+    res.cookie("mobileUserId", newUser.id, {
+      httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
 
-    } )
-    
     // Create mobile session ID for mobile app (same as login)
-    const mobileSessionId = `mobile_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const mobileSessionId = `mobile_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
     if (!global.mobileSessions) {
       global.mobileSessions = {};
     }
     global.mobileSessions[mobileSessionId] = newUser.id;
-    console.log(`✅ Mobile session created for new user ${newUser.id}: ${mobileSessionId}`);
-    
+    console.log(
+      `✅ Mobile session created for new user ${newUser.id}: ${mobileSessionId}`
+    );
+
     // Rimuovi la password dai dati utente per sicurezza
     const { password: _, ...userDataSafe } = newUser;
-    
+
     res.status(201).json({ ...userDataSafe, mobileSessionId });
   } catch (err) {
     console.error("Errore nella registrazione:", err);
     res.status(500).json({ error: "Errore nel server" });
   }
 });
-
 // Ottieni dati utente corrente
 router.get("/user", async (req: Request, res: Response) => {
   try {
     // Debug session information (guarded by env flag)
-    if (process.env.DEBUG_PERMISSIONS) console.log("Session debug:", {
-      sessionExists: !!req.session,
-      sessionId: req.sessionID,
-      mobileUserId: (req.session as any)?.mobileUserId,
-      allSessionKeys: req.session ? Object.keys(req.session) : 'no session',
-      cookies: req.headers.cookie,
-      mobileSessionId: req.headers['x-mobile-session-id']
-    });
-    
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("Session debug:", {
+        sessionExists: !!req.session,
+        sessionId: req.sessionID,
+        mobileUserId: (req.session as any)?.mobileUserId,
+        allSessionKeys: req.session ? Object.keys(req.session) : "no session",
+        cookies: req.headers.cookie,
+        mobileSessionId: req.headers["x-mobile-session-id"],
+      });
+
     // Check authentication via mobile session header ONLY
     let userId: number | undefined;
-    
-    // if (req.headers['x-mobile-session-id']) {
-    //   const mobileSessionId = req.headers['x-mobile-session-id'] as string;
-    //   if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
-    //     userId = global.mobileSessions[mobileSessionId];
-    //     if (process.env.DEBUG_PERMISSIONS) console.log(`✅ Mobile session authenticated: ${mobileSessionId} -> userId: ${userId}`);
-    //   } else {
-    //     console.log(`❌ Invalid mobile session: ${mobileSessionId}`);
-    //   }
-    // }
-   userId =  req.cookies.mobileUserId 
+
+    console.log(req.mobileData,"<<< mobileData in /user endpoint");
+    // Normalize mobileData whether it's a JSON string or an object
+    let mobileDataFromReq: any = req.mobileData;
+    if (typeof mobileDataFromReq === "string") {
+      try {
+        mobileDataFromReq = JSON.parse(mobileDataFromReq);
+      } catch (e) {
+        mobileDataFromReq = undefined;
+      }
+    }
+    userId = (mobileDataFromReq?.userId) as number | undefined;
     
     if (!userId) {
-      if (process.env.DEBUG_PERMISSIONS) console.log(`❌ 
-        No valid mobile session found. Headers:`, req.headers,
-        `
-        Global mobile sessions:`, global.mobileSessions,
-        `
-        Mobile session ID:`, req.headers['x-mobile-session-id'],
-        `
-        Mobile session:`, global.mobileSessions?.[req.headers['x-mobile-session-id'] as string]);
+      if (process.env.DEBUG_PERMISSIONS)
+        console.log(
+          `❌ 
+        No valid mobile session found. Headers:`,
+          req.headers,
+          `
+        Global mobile sessions:`,
+          global.mobileSessions,
+          `
+        Mobile session ID:`,
+          req.headers["x-mobile-session-id"],
+          `
+        Mobile session:`,
+          global.mobileSessions?.[req.headers["x-mobile-session-id"] as string]
+        );
       return res.status(401).json({ error: "Non autenticato" });
     }
 
@@ -174,42 +188,77 @@ router.get("/user", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Utente non trovato" });
     }
 
+    // Fetch permissions using PlanEnforcementService for consistency
+    let permissions: any = {};
+    try {
+      const { PlanEnforcementService } = await import("../services/planEnforcement");
+      const planConfig = await PlanEnforcementService.getUserPlanConfiguration(user.id);
+      permissions = planConfig?.features?.permissions || {};
+      // console.log("✅ Permissions for user:", {
+      //   userId: user.id,
+      //   planId: planConfig?.planId,
+      //   permissions,
+      // });
+    } catch (permErr) {
+      console.warn("Unable to fetch plan permissions:", permErr);
+      // Fallback to role-based permissions if PlanEnforcementService fails
+      if (user.roleId) {
+        const role = await storage.getRole(Number(user.roleId));
+        if (role && role.permissions) {
+          try {
+            permissions = JSON.parse(role.permissions);
+          } catch (parseError) {
+            console.error("Error parsing role permissions:", parseError);
+          }
+        }
+      }
+    }
+
     // Rimuovi la password dai dati utente per sicurezza
     const { password, ...userData } = user;
-    
-    res.json(userData);
+
+    // Add permissions to the user data
+    res.json({...userData, permissions});
   } catch (err) {
     console.error("Errore nell'ottenere dati utente:", err);
     res.status(500).json({ error: "Errore nel server" });
   }
 });
-
 // Login utente
 router.post("/login", async (req: Request, res: Response) => {
   try {
     const { username, email, password } = req.body;
-    
+
     // Controlla se è stato fornito username o email
     const loginIdentifier = email || username;
-    
+
     if (!loginIdentifier || !password) {
-      return res.status(400).json({ error: "Email/Username e password sono richiesti" });
+      return res
+        .status(400)
+        .json({ error: "Email/Username e password sono richiesti" });
     }
 
     // Debug per verificare cosa viene inviato
-    console.log("Login attempt:",req.body, { email, username, password: password ? "***" : undefined });
-    
+    console.log("Login attempt:", req.body, {
+      email,
+      username,
+      password: password ? "***" : undefined,
+    });
+
     // Cerca utente - prima per email se fornita, altrimenti per username
     let user;
-    
+
     // Solo per debug, mostriamo tutti gli utenti
     const allUsers = await storage.getUsers();
-    console.log("All users:", allUsers.map(u => ({ 
-      id: u.id, 
-      email: u.email, 
-      username: u.username
-    })));
-    
+    console.log(
+      "All users:",
+      allUsers.map((u) => ({
+        id: u.id,
+        email: u.email,
+        username: u.username,
+      }))
+    );
+
     if (email) {
       user = await storage.getUserByEmail(email);
       console.log("User found by email:", !!user);
@@ -217,25 +266,25 @@ router.post("/login", async (req: Request, res: Response) => {
       user = await storage.getUserByUsername(username);
       console.log("User found by username:", !!user);
     }
-    
+
     if (!user) {
       return res.status(401).json({ error: "Credenziali non valide" });
     }
 
     // Verifica password
-    console.log("Verifica password:", { 
+    console.log("Verifica password:", {
       storedPassword: user.password,
       providedPassword: password,
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
-      }
+        email: user.email,
+      },
     });
-    
+
     const passwordMatch = await comparePasswords(password, user.password);
     console.log("Password match result:", passwordMatch);
-    
+
     if (!passwordMatch) {
       return res.status(401).json({ error: "Credenziali non valide" });
     }
@@ -247,62 +296,75 @@ router.post("/login", async (req: Request, res: Response) => {
 
     // Store ONLY in global mobile sessions (no Express session dependency)
     const mobileSessionId = `mobile_${Date.now()}_${user.id}`;
-    
+
     // Debug before setting
     console.log("🔍 Before setting global session:", {
       mobileSessionId,
       userId: user.id,
       globalSessionsExists: !!global.mobileSessions,
       globalSessionsType: typeof global.mobileSessions,
-      globalSessionsKeys: global.mobileSessions ? Object.keys(global.mobileSessions) : 'undefined'
+      globalSessionsKeys: global.mobileSessions
+        ? Object.keys(global.mobileSessions)
+        : "undefined",
     });
-    
+
     global.mobileSessions![mobileSessionId] = user.id;
-    
+
     // Debug after setting
     console.log("🔍 After setting global session:", {
       mobileSessionId,
       userId: user.id,
       globalSessionsCount: Object.keys(global.mobileSessions!).length,
-      allSessions: global.mobileSessions
+      allSessions: global.mobileSessions,
     });
-    
+
     // Debug mobile session after setting
     console.log("Mobile session created:", {
       mobileSessionId,
       userId: user.id,
-      globalSessionsCount: Object.keys(global.mobileSessions!).length
+      globalSessionsCount: Object.keys(global.mobileSessions!).length,
     });
-    
+    let mobileData = {};
     // Log plan permissions for this user
     try {
-      const { PlanEnforcementService } = await import('../services/planEnforcement');
-      const planConfig = await PlanEnforcementService.getUserPlanConfiguration(user.id);
+      const { PlanEnforcementService } = await import(
+        "../services/planEnforcement"
+      );
+      const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+        user.id
+      );
       const permissions = planConfig?.features?.permissions || {};
       console.log("✅ Permissions for user login:", {
         userId: user.id,
         planId: planConfig?.planId,
-        permissions
+        permissions,
       });
 
-      const mobileData =  {
+      mobileData = {
         userId: user.id,
         planId: planConfig?.planId,
         mobileSessionId,
-        permissions
-      }
-    res.cookie("mobile_data",JSON.stringify(mobileData),{
-      httpOnly:true,
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-    })
+        permissions,
+      };
 
+      res.cookie("mobile_data", JSON.stringify(mobileData), {
+        httpOnly: true,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
     } catch (permErr) {
       console.warn("Unable to fetch plan permissions on login:", permErr);
     }
-
+    const mobileAccessToken = await JwtInstance.generateMobileDataTokens(
+      mobileData
+    );
+    console.log({ mobileData });
     // Return mobile session ID for mobile app
     const { password: _, ...userData } = user;
-    res.json({ ...userData, mobileSessionId });
+    res.json({
+      ...userData,
+      mobileSessionId,
+      mobile_data_token: mobileAccessToken.mobile_data_token,
+    });
   } catch (err) {
     console.error("Errore durante il login:", err);
     res.status(500).json({ error: "Errore nel server" });
@@ -312,15 +374,15 @@ router.post("/login", async (req: Request, res: Response) => {
 // Logout utente
 router.post("/logout", (req: Request, res: Response) => {
   // Clean up global mobile session if session ID is provided
-  if (req.headers['x-mobile-session-id']) {
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+  if (req.headers["x-mobile-session-id"]) {
+    const mobileSessionId = req.headers["x-mobile-session-id"] as string;
     if (global.mobileSessions && global.mobileSessions[mobileSessionId]) {
       delete global.mobileSessions[mobileSessionId];
       console.log(`✅ Mobile session cleaned up: ${mobileSessionId}`);
     }
   }
-  res.clearCookie("mobile_data")
-  
+  res.clearCookie("mobile_data");
+
   res.status(200).json({ message: "Logout effettuato con successo" });
 });
 
@@ -328,16 +390,18 @@ router.post("/logout", (req: Request, res: Response) => {
 router.post("/activate", async (req: Request, res: Response) => {
   try {
     const { activationCode, password, fullName } = req.body;
-    
+
     if (!activationCode || !password || !fullName) {
-      return res.status(400).json({ 
-        error: "Codice di attivazione, password e nome completo sono richiesti" 
+      return res.status(400).json({
+        error: "Codice di attivazione, password e nome completo sono richiesti",
       });
     }
 
     // TODO: Implement collaborator activation code system
     // For now, return an error as this feature is not implemented
-    return res.status(501).json({ error: "Sistema di attivazione collaboratori non ancora implementato" });
+    return res.status(501).json({
+      error: "Sistema di attivazione collaboratori non ancora implementato",
+    });
   } catch (err) {
     console.error("Errore durante l'attivazione:", err);
     res.status(500).json({ error: "Errore nel server" });
@@ -352,8 +416,8 @@ router.put("/user", async (req: Request, res: Response) => {
     // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
     //   return res.status(401).json({ error: "Non autenticato" });
     // }
-    const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = req.mobileData as unknown as any;
+    const userId = mobileData.userId;
 
     // Ottieni dati utente dal db
     const user = await storage.getUser(userId);
@@ -363,10 +427,10 @@ router.put("/user", async (req: Request, res: Response) => {
 
     // Aggiorna i dati utente
     const updatedUser = await storage.updateUser(userId, req.body);
-    
+
     // Rimuovi la password dai dati utente per sicurezza
     const { password, ...userData } = updatedUser as any;
-    
+
     res.json(userData);
   } catch (err) {
     console.error("Errore nell'aggiornamento utente:", err);
@@ -378,10 +442,10 @@ router.put("/user", async (req: Request, res: Response) => {
 router.post("/change-password", async (req: Request, res: Response) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    
+
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ 
-        error: "La password attuale e la nuova password sono richieste" 
+      return res.status(400).json({
+        error: "La password attuale e la nuova password sono richieste",
       });
     }
 
@@ -390,10 +454,10 @@ router.post("/change-password", async (req: Request, res: Response) => {
     // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
     //   return res.status(401).json({ error: "Non autenticato" });
     // }
-    
+
     // const userId = global.mobileSessions[mobileSessionId];
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Ottieni dati utente dal db
     const user = await storage.getUser(userId);
@@ -402,7 +466,10 @@ router.post("/change-password", async (req: Request, res: Response) => {
     }
 
     // Verifica password attuale
-    const passwordMatch = await comparePasswords(currentPassword, user.password);
+    const passwordMatch = await comparePasswords(
+      currentPassword,
+      user.password
+    );
     if (!passwordMatch) {
       return res.status(401).json({ error: "Password attuale non valida" });
     }
@@ -412,7 +479,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
 
     // Aggiorna la password
     await storage.updateUser(userId, { password: hashedPassword });
-    
+
     res.json({ message: "Password aggiornata con successo" });
   } catch (err) {
     console.error("Errore nel cambio password:", err);
@@ -421,23 +488,24 @@ router.post("/change-password", async (req: Request, res: Response) => {
 });
 
 // Ottenere tutti i lavori assegnati all'utente corrente
-router.get("/jobs", 
-  requireFeature('job_management'),
-  requirePageAccess('jobs', 'view'),
-  filterResponseByPlan('jobs'),
+router.get(
+  "/jobs",
+  requireFeature("job_management"),
+  requirePageAccess("jobs", "view"),
+  filterResponseByPlan("jobs"),
   addPlanInfo(),
   async (req: Request, res: Response) => {
     try {
       // Controlla se l'utente è autenticato
-       const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const userId = mobileData.userId;
       if (!userId) {
         return res.status(401).json({ error: "Non autenticato" });
       }
 
       // Ottieni lavori assegnati all'utente
       const jobs = await storage.getJobsByUserId(userId);
-      
+
       res.json(jobs);
     } catch (err) {
       console.error("Errore nell'ottenere i lavori:", err);
@@ -452,23 +520,22 @@ router.get("/jobs",
 router.get("/jobs/assigned", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Get jobs assigned to the current user
     const assignedJobs = await storage.getJobsByUserId(userId);
-    
+
     res.json({
       message: "Jobs assigned to current user",
       totalJobs: assignedJobs.length,
-      jobs: assignedJobs
+      jobs: assignedJobs,
     });
   } catch (err) {
     console.error("Errore nell'ottenere i lavori assegnati:", err);
     res.status(500).json({ error: "Errore nel server" });
   }
 });
-
 
 // Get a specific job by ID
 router.get("/jobs/:id", async (req: Request, res: Response) => {
@@ -478,14 +545,14 @@ router.get("/jobs/:id", async (req: Request, res: Response) => {
     // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
     //   return res.status(401).json({ error: "Non autenticato" });
     // }
-    
+
     // const userId = global.mobileSessions[mobileSessionId];
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
     const job = await storage.getJob(jobId);
-    
+
     if (!job) {
       return res.status(404).json({ error: "Lavoro non trovato" });
     }
@@ -508,29 +575,33 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
     // if (!mobileSessionId || !global.mobileSessions || !global.mobileSessions[mobileSessionId]) {
     //   return res.status(401).json({ error: "Non autenticato" });
     // }
-    
+
     // const userId = global.mobileSessions[mobileSessionId];
 
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to edit jobs
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
-    
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
+
     // Check job edit permission
     const canEditJobs = planConfig?.features?.permissions?.edit_jobs !== false;
     if (!canEditJobs) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di modificare lavori",
         permission: "edit_jobs",
-        required: true
+        required: true,
       });
     }
 
     const jobId = Number(req.params.id);
     const job = await storage.getJob(jobId);
-    
+
     if (!job) {
       return res.status(404).json({ error: "Lavoro non trovato" });
     }
@@ -542,7 +613,7 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
 
     // Update job
     const updatedJob = await storage.updateJob(jobId, req.body);
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nell'aggiornamento del lavoro:", err);
@@ -554,26 +625,31 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
 router.delete("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to delete jobs
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
-    
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
+
     // Check job delete permission
-    const canDeleteJobs = planConfig?.features?.permissions?.delete_jobs !== false;
+    const canDeleteJobs =
+      planConfig?.features?.permissions?.delete_jobs !== false;
     if (!canDeleteJobs) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di eliminare lavori",
         permission: "delete_jobs",
-        required: true
+        required: true,
       });
     }
 
     const jobId = Number(req.params.id);
     const job = await storage.getJob(jobId);
-    
+
     if (!job) {
       return res.status(404).json({ error: "Lavoro non trovato" });
     }
@@ -585,7 +661,7 @@ router.delete("/jobs/:id", async (req: Request, res: Response) => {
 
     // Delete job
     await storage.deleteJob(jobId);
-    
+
     res.status(204).send();
   } catch (err) {
     console.error("Errore nella cancellazione del lavoro:", err);
@@ -593,20 +669,19 @@ router.delete("/jobs/:id", async (req: Request, res: Response) => {
   }
 });
 
-
 // ===== CALENDAR ENDPOINTS =====
 
 // Get jobs for a specific date range
 router.get("/calendar", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const { startDate, endDate, view } = req.query;
-    
+
     let start, end;
-    
+
     if (startDate && endDate) {
       start = new Date(startDate as string);
       end = new Date(endDate as string);
@@ -619,16 +694,16 @@ router.get("/calendar", async (req: Request, res: Response) => {
 
     // Get jobs for the date range
     const jobs = await storage.getJobsByDateRange(start, end);
-    
+
     // Format jobs for calendar display
-    const calendarJobs = jobs.map(job => ({
+    const calendarJobs = jobs.map((job) => ({
       id: job.id,
       title: job.title,
       start: job.startDate,
       end: job.endDate || job.startDate,
       status: job.status,
       clientId: job.clientId,
-      color: getJobColor(job.status, (job as any).jobTypeId)
+      color: getJobColor(job.status, (job as any).jobTypeId),
     }));
 
     res.json(calendarJobs);
@@ -642,16 +717,27 @@ router.get("/calendar", async (req: Request, res: Response) => {
 router.get("/calendar/today", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+    const startOfDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+    const endOfDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      23,
+      59,
+      59
+    );
 
     // Get jobs for today
     const jobs = await storage.getJobsByDateRange(startOfDay, endOfDay);
-    
+
     res.json(jobs);
   } catch (err) {
     console.error("Errore nell'ottenere i lavori di oggi:", err);
@@ -665,12 +751,12 @@ router.get("/calendar/today", async (req: Request, res: Response) => {
 router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
     const { assignedUserId } = req.body;
-    
+
     if (!assignedUserId) {
       return res.status(400).json({ error: "ID utente assegnato è richiesto" });
     }
@@ -683,15 +769,18 @@ router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
 
     // Check if the current user can assign jobs (admin or job owner)
     const currentUser = await storage.getUser(userId);
-    if (!currentUser || (currentUser.type !== 'admin' && job.assignedUserId !== userId)) {
+    if (
+      !currentUser ||
+      (currentUser.type !== "admin" && job.assignedUserId !== userId)
+    ) {
       return res.status(403).json({ error: "Accesso negato" });
     }
 
     // Update job assignment
     const updatedJob = await storage.updateJob(jobId, {
-      assignedUserId: Number(assignedUserId)
+      assignedUserId: Number(assignedUserId),
     });
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nell'assegnazione del lavoro:", err);
@@ -699,26 +788,24 @@ router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
   }
 });
 
-
-
 // Get available users for job assignment
 router.get("/users/available", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Get all active users
     const users = await storage.getUsers();
     const availableUsers = users
-      .filter(user => user.isActive && user.type !== 'client')
-      .map(user => ({
+      .filter((user) => user.isActive && user.type !== "client")
+      .map((user) => ({
         id: user.id,
         username: user.username,
         fullName: user.fullName,
-        type: user.type
+        type: user.type,
       }));
-    
+
     res.json(availableUsers);
   } catch (err) {
     console.error("Errore nell'ottenere gli utenti disponibili:", err);
@@ -732,8 +819,8 @@ router.get("/users/available", async (req: Request, res: Response) => {
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobTypes = await storage.getJobTypes();
     res.json(jobTypes);
@@ -747,23 +834,28 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.post("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated and is admin
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const currentUser = await storage.getUser(userId);
-    if (!currentUser || currentUser.type !== 'admin') {
-      return res.status(403).json({ error: "Accesso negato - Solo amministratori" });
+    if (!currentUser || currentUser.type !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Accesso negato - Solo amministratori" });
     }
 
     const { name, description } = req.body;
-    
+
     if (!name) {
-      return res.status(400).json({ error: "Nome del tipo di lavoro è richiesto" });
+      return res
+        .status(400)
+        .json({ error: "Nome del tipo di lavoro è richiesto" });
     }
 
     const newJobType = await storage.createJobType({
-      name, description,
-      sectorIds: ""
+      name,
+      description,
+      sectorIds: "",
     });
     res.status(201).json(newJobType);
   } catch (err) {
@@ -778,12 +870,12 @@ router.post("/job-types", async (req: Request, res: Response) => {
 router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
-    const { note, noteType = 'general' } = req.body;
-    
+    const { note, noteType = "general" } = req.body;
+
     if (!note) {
       return res.status(400).json({ error: "Nota è richiesta" });
     }
@@ -800,17 +892,19 @@ router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
       userId,
       note,
       noteType,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
 
     // For now, append to existing notes
-    const currentNotes = job.notes || '';
-    const updatedNotes = currentNotes ? `${currentNotes}\n\n[${new Date().toLocaleString()}] ${note}` : note;
-    
+    const currentNotes = job.notes || "";
+    const updatedNotes = currentNotes
+      ? `${currentNotes}\n\n[${new Date().toLocaleString()}] ${note}`
+      : note;
+
     const updatedJob = await storage.updateJob(jobId, {
-      notes: updatedNotes
+      notes: updatedNotes,
     });
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nell'aggiunta della nota:", err);
@@ -822,12 +916,12 @@ router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
 router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
     const { photoUrl, description } = req.body;
-    
+
     if (!photoUrl) {
       return res.status(400).json({ error: "URL della foto è richiesto" });
     }
@@ -849,18 +943,18 @@ router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
     // Add new photo
     const newPhoto = {
       url: photoUrl,
-      description: description || '',
+      description: description || "",
       uploadedBy: userId,
-      uploadedAt: new Date().toISOString()
+      uploadedAt: new Date().toISOString(),
     };
 
     currentPhotos.push(newPhoto);
 
     // Update job with new photos
     const updatedJob = await storage.updateJob(jobId, {
-      photos: JSON.stringify(currentPhotos)
+      photos: JSON.stringify(currentPhotos),
     });
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nell'upload della foto:", err);
@@ -872,11 +966,11 @@ router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
-    
+
     // Get the job
     const job = await storage.getJob(jobId);
     if (!job) {
@@ -890,7 +984,7 @@ router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
     } catch (e) {
       photos = [];
     }
-    
+
     res.json(photos);
   } catch (err) {
     console.error("Errore nell'ottenere le foto:", err);
@@ -904,12 +998,12 @@ router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
     const { collaboratorId, role } = req.body;
-    
+
     if (!collaboratorId) {
       return res.status(400).json({ error: "ID collaboratore è richiesto" });
     }
@@ -922,23 +1016,30 @@ router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 
     // Check if the current user can manage this job (admin or job owner)
     const currentUser = await storage.getUser(userId);
-    if (!currentUser || (currentUser.type !== 'admin' && job.assignedUserId !== userId)) {
+    if (
+      !currentUser ||
+      (currentUser.type !== "admin" && job.assignedUserId !== userId)
+    ) {
       return res.status(403).json({ error: "Accesso negato" });
     }
 
     // For now, store collaboration info in job notes
     // In a real system, you'd have a separate job_collaborators table
-    const collaborationNote = `[${new Date().toLocaleString()}] Collaboratore aggiunto: ID ${collaboratorId}, Ruolo: ${role || 'assistente'}`;
-    const currentNotes = job.notes || '';
-    const updatedNotes = currentNotes ? `${currentNotes}\n\n${collaborationNote}` : collaborationNote;
-    
+    const collaborationNote = `[${new Date().toLocaleString()}] Collaboratore aggiunto: ID ${collaboratorId}, Ruolo: ${
+      role || "assistente"
+    }`;
+    const currentNotes = job.notes || "";
+    const updatedNotes = currentNotes
+      ? `${currentNotes}\n\n${collaborationNote}`
+      : collaborationNote;
+
     const updatedJob = await storage.updateJob(jobId, {
-      notes: updatedNotes
+      notes: updatedNotes,
     });
-    
+
     res.json({
       message: "Collaboratore aggiunto al lavoro",
-      job: updatedJob
+      job: updatedJob,
     });
   } catch (err) {
     console.error("Errore nell'aggiunta del collaboratore:", err);
@@ -950,11 +1051,11 @@ router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
-    
+
     // Get the job
     const job = await storage.getJob(jobId);
     if (!job) {
@@ -966,12 +1067,16 @@ router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
     const collaborationInfo = {
       primaryUser: job.assignedUserId,
       notes: job.notes,
-      message: "Collaboration info is currently stored in job notes. A proper collaboration table will be implemented."
+      message:
+        "Collaboration info is currently stored in job notes. A proper collaboration table will be implemented.",
     };
-    
+
     res.json(collaborationInfo);
   } catch (err) {
-    console.error("Errore nell'ottenere le informazioni di collaborazione:", err);
+    console.error(
+      "Errore nell'ottenere le informazioni di collaborazione:",
+      err
+    );
     res.status(500).json({ error: "Errore nel server" });
   }
 });
@@ -980,11 +1085,11 @@ router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/team", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
-    
+
     // Get the job
     const job = await storage.getJob(jobId);
     if (!job) {
@@ -993,7 +1098,7 @@ router.get("/jobs/:id/team", async (req: Request, res: Response) => {
 
     // Get team members (primary user + any collaborators)
     const teamMembers = [];
-    
+
     if (job.assignedUserId) {
       const primaryUser = await storage.getUser(job.assignedUserId);
       if (primaryUser) {
@@ -1001,19 +1106,19 @@ router.get("/jobs/:id/team", async (req: Request, res: Response) => {
           id: primaryUser.id,
           username: primaryUser.username,
           fullName: primaryUser.fullName,
-          role: 'primary',
-          type: primaryUser.type
+          role: "primary",
+          type: primaryUser.type,
         });
       }
     }
 
     // TODO: In a real system, query a job_collaborators table
     // For now, return the primary user info
-    
+
     res.json({
       jobId,
       teamMembers,
-      totalMembers: teamMembers.length
+      totalMembers: teamMembers.length,
     });
   } catch (err) {
     console.error("Errore nell'ottenere i membri del team:", err);
@@ -1024,31 +1129,36 @@ router.get("/jobs/:id/team", async (req: Request, res: Response) => {
 // Helper function to get job color based on status and type
 function getJobColor(status: string, jobTypeId?: number | null): string {
   switch (status) {
-    case 'completed':
-      return 'green';
-    case 'in_progress':
-      return 'blue';
-    case 'scheduled':
-      return 'yellow';
-    case 'cancelled':
-      return 'red';
+    case "completed":
+      return "green";
+    case "in_progress":
+      return "blue";
+    case "scheduled":
+      return "yellow";
+    case "cancelled":
+      return "red";
     default:
-      return 'gray';
+      return "gray";
   }
 }
 
 // Creazione/acquisto di un nuovo abbonamento
 router.post("/subscriptions", async (req: Request, res: Response) => {
   try {
-    const { planId, billingFrequency = "monthly", paymentMethod, paymentInfo } = req.body;
-    
+    const {
+      planId,
+      billingFrequency = "monthly",
+      paymentMethod,
+      paymentInfo,
+    } = req.body;
+
     if (!planId) {
       return res.status(400).json({ error: "ID del piano richiesto" });
     }
 
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Ottieni il piano di abbonamento
     const plan = await storage.getSubscriptionPlan(planId);
@@ -1062,44 +1172,51 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
     // Validazione pagamento per piani a pagamento
     if (!isFreePlan) {
       if (!paymentMethod) {
-        return res.status(400).json({ error: "Metodo di pagamento richiesto per piani a pagamento" });
+        return res.status(400).json({
+          error: "Metodo di pagamento richiesto per piani a pagamento",
+        });
       }
 
       // Process payment with Stripe for credit card payments
       if (paymentMethod === "credit_card") {
         const { paymentIntentId } = req.body;
-        
+
         if (!paymentIntentId) {
-          return res.status(400).json({ error: "Payment Intent ID richiesto per pagamenti con carta" });
+          return res.status(400).json({
+            error: "Payment Intent ID richiesto per pagamenti con carta",
+          });
         }
 
         try {
           // Verify the payment intent with Stripe
-          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-          
-          if (paymentIntent.status !== 'succeeded') {
-            return res.status(400).json({ 
-              error: "Pagamento non completato", 
-              details: "Il pagamento non è stato completato con successo"
+          const paymentIntent = await stripe.paymentIntents.retrieve(
+            paymentIntentId
+          );
+
+          if (paymentIntent.status !== "succeeded") {
+            return res.status(400).json({
+              error: "Pagamento non completato",
+              details: "Il pagamento non è stato completato con successo",
             });
           }
 
           // Verify the amount matches the plan price
-          const expectedAmount = billingFrequency === "monthly" 
-            ? Math.round(parseFloat(plan.monthlyPrice) * 100)
-            : Math.round(parseFloat(plan.yearlyPrice) * 100);
-            
+          const expectedAmount =
+            billingFrequency === "monthly"
+              ? Math.round(parseFloat(plan.monthlyPrice) * 100)
+              : Math.round(parseFloat(plan.yearlyPrice) * 100);
+
           if (paymentIntent.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Importo non corrispondente", 
-              details: "L'importo pagato non corrisponde al prezzo del piano"
+            return res.status(400).json({
+              error: "Importo non corrispondente",
+              details: "L'importo pagato non corrisponde al prezzo del piano",
             });
           }
         } catch (stripeError: any) {
-          console.error('Stripe payment verification error:', stripeError);
-          return res.status(400).json({ 
-            error: "Errore nella verifica del pagamento", 
-            details: stripeError.message || "Errore sconosciuto"
+          console.error("Stripe payment verification error:", stripeError);
+          return res.status(400).json({
+            error: "Errore nella verifica del pagamento",
+            details: stripeError.message || "Errore sconosciuto",
           });
         }
       }
@@ -1108,7 +1225,7 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
     // Calcola date di inizio e fine
     const startDate = new Date();
     let endDate = new Date();
-    
+
     if (billingFrequency === "monthly" && plan.monthlyDuration) {
       endDate.setDate(endDate.getDate() + plan.monthlyDuration);
     } else if (billingFrequency === "yearly" && plan.yearlyDuration) {
@@ -1130,7 +1247,7 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
       endDate,
       status,
     });
-    
+
     res.status(201).json(subscription);
   } catch (err) {
     console.error("Errore nella creazione dell'abbonamento:", err);
@@ -1142,10 +1259,10 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
 router.get("/subscription-plans", async (req: Request, res: Response) => {
   try {
     const plans = await storage.getSubscriptionPlans();
-    
+
     // Filtra solo i piani attivi
-    const activePlans = plans.filter(plan => plan.isActive);
-    
+    const activePlans = plans.filter((plan) => plan.isActive);
+
     res.json(activePlans);
   } catch (err) {
     console.error("Errore nell'ottenere i piani:", err);
@@ -1157,17 +1274,17 @@ router.get("/subscription-plans", async (req: Request, res: Response) => {
 router.get("/subscription-plans/:id", async (req: Request, res: Response) => {
   try {
     const planId = parseInt(req.params.id);
-    
+
     if (isNaN(planId)) {
       return res.status(400).json({ error: "ID piano non valido" });
     }
-    
+
     const plan = await storage.getSubscriptionPlan(planId);
-    
+
     if (!plan) {
       return res.status(404).json({ error: "Piano non trovato" });
     }
-    
+
     res.json(plan);
   } catch (err) {
     console.error("Errore nell'ottenere il piano:", err);
@@ -1179,19 +1296,19 @@ router.get("/subscription-plans/:id", async (req: Request, res: Response) => {
 router.get("/user-subscription", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Ottieni abbonamento
     const subscription = await storage.getUserSubscriptionByUserId(userId);
-    
+
     if (!subscription) {
       return res.json(null);
     }
-    
+
     // Ottieni anche i dettagli del piano
     const plan = await storage.getSubscriptionPlan(subscription.planId);
-    
+
     res.json({
       ...subscription,
       plan,
@@ -1203,74 +1320,85 @@ router.get("/user-subscription", async (req: Request, res: Response) => {
 });
 
 // Check activity management permissions
-router.get("/permissions/activity-management", async (req: Request, res: Response) => {
-  try {
-    // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
-    // Check if activity management is enabled for this user's plan
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const activityManagementEnabled = await PlanEnforcementService.isActivityManagementEnabled(userId);
-    
-    res.json({
-      activityManagementEnabled,
-      userId
-    });
-  } catch (err) {
-    console.error("Errore nel controllo dei permessi di gestione attività:", err);
-    res.status(500).json({ error: "Errore nel server" });
+router.get(
+  "/permissions/activity-management",
+  async (req: Request, res: Response) => {
+    try {
+      // Check mobile session authentication
+      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const userId = mobileData.userId;
+
+      // Check if activity management is enabled for this user's plan
+      const { PlanEnforcementService } = await import(
+        "../services/planEnforcement"
+      );
+      const activityManagementEnabled =
+        await PlanEnforcementService.isActivityManagementEnabled(userId);
+
+      res.json({
+        activityManagementEnabled,
+        userId,
+      });
+    } catch (err) {
+      console.error(
+        "Errore nel controllo dei permessi di gestione attività:",
+        err
+      );
+      res.status(500).json({ error: "Errore nel server" });
+    }
   }
-});
+);
 
 // Ottiene statistiche per la dashboard mobile
 router.get("/stats", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     // Get user data
     const user = await storage.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: "Utente non trovato" });
     }
-    
+
     // Ottieni tutti i lavori per calcolare le statistiche reali
     const allJobs = await storage.getJobs();
     const clients = await storage.getClients();
-    
+
     // Calcola le statistiche reali
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-    
-    const activeJobs = allJobs.filter(job => 
-      job.status === 'scheduled' || job.status === 'in_progress'
+
+    const activeJobs = allJobs.filter(
+      (job) => job.status === "scheduled" || job.status === "in_progress"
     ).length;
-    
-    const completedJobs = allJobs.filter(job => 
-      job.status === 'completed'
+
+    const completedJobs = allJobs.filter(
+      (job) => job.status === "completed"
     ).length;
-    
+
     const totalClients = clients.length;
-    
+
     // Calcola l'incasso mensile dai lavori completati questo mese
     const monthlyRevenue = allJobs
-      .filter(job => {
-        if (job.status !== 'completed' || !job.completedDate) return false;
+      .filter((job) => {
+        if (job.status !== "completed" || !job.completedDate) return false;
         const completedDate = new Date(job.completedDate);
-        return completedDate.getMonth() === currentMonth && 
-               completedDate.getFullYear() === currentYear;
+        return (
+          completedDate.getMonth() === currentMonth &&
+          completedDate.getFullYear() === currentYear
+        );
       })
       .reduce((total, job) => total + Number(job.cost || 0), 0);
-    
+
     return res.json({
       lavoriAttivi: activeJobs,
       clientiTotali: totalClients,
       lavoriCompletati: completedJobs,
       incassoMensile: monthlyRevenue,
-      totalJobs: allJobs.length
+      totalJobs: allJobs.length,
     });
   } catch (err) {
     console.error("Errore nell'ottenere le statistiche:", err);
@@ -1282,65 +1410,76 @@ router.get("/stats", async (req: Request, res: Response) => {
 router.get("/today-appointments", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = req.mobileData as any ;
+    const userId = mobileData.userId;
+
     // Get user data
     const user = await storage.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: "Utente non trovato" });
     }
-    
+
     // Ottieni tutti i lavori e clienti
     const allJobs = await storage.getJobs();
     const allClients = await storage.getClients();
-    
+
     // Filtra i lavori di oggi (scheduled)
     // Use database date to avoid timezone issues
     const today = new Date();
     // Get the date in the local timezone (same as database)
-    const todayString = today.getFullYear() + '-' + 
-                       String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                       String(today.getDate()).padStart(2, '0');
-    
-    const todayJobs = allJobs.filter(job => {
-      if (job.status !== 'scheduled') return false;
+    const todayString =
+      today.getFullYear() +
+      "-" +
+      String(today.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(today.getDate()).padStart(2, "0");
+
+    const todayJobs = allJobs.filter((job) => {
+      if (job.status !== "scheduled") return false;
       const jobDate = new Date(job.startDate);
-      const jobDateString = jobDate.toISOString().split('T')[0];
+      const jobDateString = jobDate.toISOString().split("T")[0];
       return jobDateString === todayString;
     });
-    
+
     // Formatta gli appuntamenti con i dati dei clienti
-    const appointments = todayJobs.map(job => {
-      const client = allClients.find(c => c.id === job.clientId);
-      const startTime = new Date(job.startDate).toLocaleTimeString('it-IT', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: false 
+    const appointments = todayJobs.map((job) => {
+      const client = allClients.find((c) => c.id === job.clientId);
+      const startTime = new Date(job.startDate).toLocaleTimeString("it-IT", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
       });
-      const endTime = job.endDate ? 
-        new Date(job.endDate).toLocaleTimeString('it-IT', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        }) : 
-        new Date(new Date(job.startDate).getTime() + (Number(job.duration) * 60 * 60 * 1000)).toLocaleTimeString('it-IT', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        });
-      
+      const endTime = job.endDate
+        ? new Date(job.endDate).toLocaleTimeString("it-IT", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+        : new Date(
+            new Date(job.startDate).getTime() +
+              Number(job.duration) * 60 * 60 * 1000
+          ).toLocaleTimeString("it-IT", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+
       return {
         id: job.id,
         title: job.title,
-        client: client?.name || 'Cliente sconosciuto',
-        location: job.location || 'Indirizzo non specificato',
+        client: client?.name || "Cliente sconosciuto",
+        location: job.location || "Indirizzo non specificato",
         startTime,
         endTime,
-        color: job.type === 'repair' ? 'blue' : job.type === 'quote' ? 'purple' : 'yellow'
+        color:
+          job.type === "repair"
+            ? "blue"
+            : job.type === "quote"
+            ? "purple"
+            : "yellow",
       };
     });
-    
+
     res.json(appointments);
   } catch (err) {
     console.error("Errore nell'ottenere gli appuntamenti di oggi:", err);
@@ -1352,9 +1491,9 @@ router.get("/today-appointments", async (req: Request, res: Response) => {
 router.get("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     const clients = await storage.getClients();
     return res.json(clients);
   } catch (err) {
@@ -1416,11 +1555,11 @@ router.patch("/jobtypes/:id", async (req: Request, res: Response) => {
   try {
     const jobTypeId = Number(req.params.id);
     const updatedJobType = await storage.updateJobType(jobTypeId, req.body);
-    
+
     if (!updatedJobType) {
       return res.status(404).json({ error: "Tipo di lavoro non trovato" });
     }
-    
+
     return res.json(updatedJobType);
   } catch (err) {
     console.error("Errore nell'aggiornamento del tipo di lavoro:", err);
@@ -1433,11 +1572,11 @@ router.delete("/jobtypes/:id", async (req: Request, res: Response) => {
   try {
     const jobTypeId = Number(req.params.id);
     const success = await storage.deleteJobType(jobTypeId);
-    
+
     if (!success) {
       return res.status(404).json({ error: "Tipo di lavoro non trovato" });
     }
-    
+
     return res.json({ success: true });
   } catch (err) {
     console.error("Errore nell'eliminazione del tipo di lavoro:", err);
@@ -1475,13 +1614,17 @@ router.post("/activities", async (req: Request, res: Response) => {
 router.patch("/activities/:id", async (req: Request, res: Response) => {
   try {
     const activityId = Number(req.params.id);
-    console.log("PATCH - Aggiornamento attività:", activityId, JSON.stringify(req.body, null, 2));
+    console.log(
+      "PATCH - Aggiornamento attività:",
+      activityId,
+      JSON.stringify(req.body, null, 2)
+    );
     const updatedActivity = await storage.updateActivity(activityId, req.body);
-    
+
     if (!updatedActivity) {
       return res.status(404).json({ error: "Attività non trovata" });
     }
-    
+
     return res.json(updatedActivity);
   } catch (err) {
     console.error("Errore nell'aggiornamento dell'attività:", err);
@@ -1493,13 +1636,17 @@ router.patch("/activities/:id", async (req: Request, res: Response) => {
 router.put("/activities/:id", async (req: Request, res: Response) => {
   try {
     const activityId = Number(req.params.id);
-    console.log("PUT - Aggiornamento attività:", activityId, JSON.stringify(req.body, null, 2));
+    console.log(
+      "PUT - Aggiornamento attività:",
+      activityId,
+      JSON.stringify(req.body, null, 2)
+    );
     const updatedActivity = await storage.updateActivity(activityId, req.body);
-    
+
     if (!updatedActivity) {
       return res.status(404).json({ error: "Attività non trovata" });
     }
-    
+
     return res.json(updatedActivity);
   } catch (err) {
     console.error("Errore nell'aggiornamento dell'attività:", err);
@@ -1512,11 +1659,11 @@ router.delete("/activities/:id", async (req: Request, res: Response) => {
   try {
     const activityId = Number(req.params.id);
     const success = await storage.deleteActivity(activityId);
-    
+
     if (!success) {
       return res.status(404).json({ error: "Attività non trovata" });
     }
-    
+
     return res.json({ success: true });
   } catch (err) {
     console.error("Errore nell'eliminazione dell'attività:", err);
@@ -1552,17 +1699,18 @@ router.get("/roles/:id", async (req: Request, res: Response) => {
 router.post("/roles", async (req: Request, res: Response) => {
   try {
     // Expect permissions as object of booleans or string 'true'/'false'.
-    const { name, description, permissions, sectorId, isDefault } = req.body || {};
+    const { name, description, permissions, sectorId, isDefault } =
+      req.body || {};
     const normalizedPermissions: Record<string, boolean> = {};
-    if (permissions && typeof permissions === 'object') {
+    if (permissions && typeof permissions === "object") {
       for (const key of Object.keys(permissions)) {
         const val = permissions[key];
-        normalizedPermissions[key] = (val === true || val === 'true');
+        normalizedPermissions[key] = val === true || val === "true";
       }
     }
     const rolePayload = {
       name,
-      description: description || '',
+      description: description || "",
       permissions: JSON.stringify(normalizedPermissions),
       sectorId: sectorId ?? null,
       isDefault: !!isDefault,
@@ -1580,11 +1728,11 @@ router.delete("/roles/:id", async (req: Request, res: Response) => {
   try {
     const roleId = Number(req.params.id);
     const success = await storage.deleteRole(roleId);
-    
+
     if (!success) {
       return res.status(404).json({ error: "Ruolo non trovato" });
     }
-    
+
     return res.json({ success: true });
   } catch (err) {
     console.error("Errore nell'eliminazione del ruolo:", err);
@@ -1596,27 +1744,29 @@ router.delete("/roles/:id", async (req: Request, res: Response) => {
 router.patch("/roles/:id", async (req: Request, res: Response) => {
   try {
     const roleId = Number(req.params.id);
-    const { name, description, permissions, sectorId, isDefault } = req.body || {};
+    const { name, description, permissions, sectorId, isDefault } =
+      req.body || {};
     const normalizedPermissions: Record<string, boolean> = {};
-    if (permissions && typeof permissions === 'object') {
+    if (permissions && typeof permissions === "object") {
       for (const key of Object.keys(permissions)) {
         const val = permissions[key];
-        normalizedPermissions[key] = (val === true || val === 'true');
+        normalizedPermissions[key] = val === true || val === "true";
       }
     }
     const rolePayload: any = {};
     if (name !== undefined) rolePayload.name = name;
     if (description !== undefined) rolePayload.description = description;
-    if (permissions !== undefined) rolePayload.permissions = JSON.stringify(normalizedPermissions);
+    if (permissions !== undefined)
+      rolePayload.permissions = JSON.stringify(normalizedPermissions);
     if (sectorId !== undefined) rolePayload.sectorId = sectorId;
     if (isDefault !== undefined) rolePayload.isDefault = !!isDefault;
 
     const updatedRole = await storage.updateRole(roleId, rolePayload);
-    
+
     if (!updatedRole) {
       return res.status(404).json({ error: "Ruolo non trovato" });
     }
-    
+
     return res.json(updatedRole);
   } catch (err) {
     console.error("Errore nell'aggiornamento del ruolo:", err);
@@ -1652,17 +1802,22 @@ router.get("/collaborators/:id", async (req: Request, res: Response) => {
 router.post("/collaborators", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to create collaborators
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canCreateCollaborators = await PlanEnforcementService.hasPermission(userId, 'collaborator.create');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canCreateCollaborators = await PlanEnforcementService.hasPermission(
+      userId,
+      "collaborator.create"
+    );
     if (!canCreateCollaborators) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di creare collaboratori",
         permission: "collaborator.create",
-        required: true
+        required: true,
       });
     }
 
@@ -1678,27 +1833,35 @@ router.post("/collaborators", async (req: Request, res: Response) => {
 router.patch("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to edit collaborators
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canEditCollaborators = await PlanEnforcementService.hasPermission(userId, 'collaborator.edit');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canEditCollaborators = await PlanEnforcementService.hasPermission(
+      userId,
+      "collaborator.edit"
+    );
     if (!canEditCollaborators) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di modificare collaboratori",
         permission: "collaborator.edit",
-        required: true
+        required: true,
       });
     }
 
     const collaboratorId = Number(req.params.id);
-    const updatedCollaborator = await storage.updateCollaborator(collaboratorId, req.body);
-    
+    const updatedCollaborator = await storage.updateCollaborator(
+      collaboratorId,
+      req.body
+    );
+
     if (!updatedCollaborator) {
       return res.status(404).json({ error: "Collaboratore non trovato" });
     }
-    
+
     return res.json(updatedCollaborator);
   } catch (err) {
     console.error("Errore nell'aggiornamento del collaboratore:", err);
@@ -1710,27 +1873,32 @@ router.patch("/collaborators/:id", async (req: Request, res: Response) => {
 router.delete("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to delete collaborators
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canDeleteCollaborators = await PlanEnforcementService.hasPermission(userId, 'collaborator.delete');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canDeleteCollaborators = await PlanEnforcementService.hasPermission(
+      userId,
+      "collaborator.delete"
+    );
     if (!canDeleteCollaborators) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di eliminare collaboratori",
         permission: "collaborator.delete",
-        required: true
+        required: true,
       });
     }
 
     const collaboratorId = Number(req.params.id);
     const success = await storage.deleteCollaborator(collaboratorId);
-    
+
     if (!success) {
       return res.status(404).json({ error: "Collaboratore non trovato" });
     }
-    
+
     return res.json({ success: true });
   } catch (err) {
     console.error("Errore nell'eliminazione del collaboratore:", err);
@@ -1743,31 +1911,53 @@ router.delete("/collaborators/:id", async (req: Request, res: Response) => {
 router.get("/all-jobs", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     // Get user's plan configuration for permissions and feature visibility
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
     // Enforce job.view_all via deny-by-default
-    const canViewAllJobs = await PlanEnforcementService.hasPermission(userId, 'job.view_all');
+    const canViewAllJobs = await PlanEnforcementService.hasPermission(
+      userId,
+      "job.view_all"
+    );
     const jobs = canViewAllJobs
       ? await storage.getJobs()
       : await storage.getJobsByUserId(userId);
-    
+
     // Get plan configuration only for visible fields filtering
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
     // Filter job fields based on plan configuration
     const visibleFields = planConfig?.features?.visible_fields?.jobs || [
-      'title', 'description', 'startDate', 'endDate', 'status', 'rate', 'client', 'actualDuration', 
-      'assignedTo', 'photos', 'materialsCost', 'cost', 'location', 'duration', 'completedDate', 'priority', 'materials'
+      "title",
+      "description",
+      "startDate",
+      "endDate",
+      "status",
+      "rate",
+      "client",
+      "actualDuration",
+      "assignedTo",
+      "photos",
+      "materialsCost",
+      "cost",
+      "location",
+      "duration",
+      "completedDate",
+      "priority",
+      "materials",
     ];
-    
-    const filteredJobs = jobs.map(job => {
+
+    const filteredJobs = jobs.map((job) => {
       const filteredJob: any = {};
-      
+
       // Always include the ID field for functionality purposes
       filteredJob.id = job.id;
-      
+
       // Add other visible fields
       visibleFields.forEach((field: string) => {
         if (job[field as keyof typeof job] !== undefined) {
@@ -1776,7 +1966,7 @@ router.get("/all-jobs", async (req: Request, res: Response) => {
       });
       return filteredJob;
     });
-    
+
     res.json(filteredJobs);
   } catch (err) {
     console.error("Errore nell'ottenere i lavori:", err);
@@ -1789,21 +1979,30 @@ router.post("/jobs", async (req: Request, res: Response) => {
   try {
     console.log("🚀 POST /jobs route called");
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
     console.log(`✅ Authenticated user: ${userId}`);
-    
+
     // Set userId in session for plan enforcement
     (req.session as any).userId = userId;
-    
+
     // Check permission to create jobs
     console.log("🔍 Checking job creation permission...");
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const hasPermission = await PlanEnforcementService.hasPermission(userId, 'job.create');
-    console.log(`🔍 Job creation permission check: userId=${userId}, permission=job.create, hasPermission=${hasPermission}`);
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const hasPermission = await PlanEnforcementService.hasPermission(
+      userId,
+      "job.create"
+    );
+    console.log(
+      `🔍 Job creation permission check: userId=${userId}, permission=job.create, hasPermission=${hasPermission}`
+    );
     if (!hasPermission) {
       console.log(`❌ Job creation blocked for userId=${userId}`);
-      return res.status(403).json({ error: "Non hai il permesso di creare nuovi lavori" });
+      return res
+        .status(403)
+        .json({ error: "Non hai il permesso di creare nuovi lavori" });
     }
     console.log(`✅ Job creation allowed for userId=${userId}`);
 
@@ -1811,24 +2010,24 @@ router.post("/jobs", async (req: Request, res: Response) => {
     const jobData = {
       title: req.body.title,
       clientId: Number(req.body.clientId),
-      type: req.body.type || 'repair',
-      status: req.body.status || 'scheduled',
+      type: req.body.type || "repair",
+      status: req.body.status || "scheduled",
       startDate: new Date(req.body.startDate),
       endDate: req.body.endDate ? new Date(req.body.endDate) : null,
-      duration: req.body.duration || '2.00',
-      hourlyRate: req.body.hourlyRate || '25.00',
-      materialsCost: req.body.materialsCost || '0.00',
-      cost: req.body.cost || '0.00',
-      laborCost: req.body.laborCost || '0.00',
+      duration: req.body.duration || "2.00",
+      hourlyRate: req.body.hourlyRate || "25.00",
+      materialsCost: req.body.materialsCost || "0.00",
+      cost: req.body.cost || "0.00",
+      laborCost: req.body.laborCost || "0.00",
       location: req.body.location || null,
-      notes: req.body.description || req.body.notes || '',
+      notes: req.body.description || req.body.notes || "",
       assignedUserId: userId,
       completedDate: null,
       actualDuration: null,
       photos: null,
       manageByActivities: req.body.manageByActivities || false,
       isActivityLevel: req.body.isActivityLevel || false,
-      isPriceTotal: req.body.isPriceTotal || false
+      isPriceTotal: req.body.isPriceTotal || false,
     };
 
     console.log(`🔍 Creating job with data:`, jobData);
@@ -1844,23 +2043,30 @@ router.post("/jobs", async (req: Request, res: Response) => {
 router.patch("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-  
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     // Check permission to edit jobs
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const hasPermission = await PlanEnforcementService.hasPermission(userId, 'job.edit');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const hasPermission = await PlanEnforcementService.hasPermission(
+      userId,
+      "job.edit"
+    );
     if (!hasPermission) {
-      return res.status(403).json({ error: "Non hai il permesso di modificare i lavori" });
+      return res
+        .status(403)
+        .json({ error: "Non hai il permesso di modificare i lavori" });
     }
 
     const jobId = Number(req.params.id);
     const updatedJob = await storage.updateJob(jobId, req.body);
-    
+
     if (!updatedJob) {
       return res.status(404).json({ error: "Lavoro non trovato" });
     }
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nell'aggiornamento del lavoro:", err);
@@ -1872,31 +2078,40 @@ router.patch("/jobs/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     // Check permission to complete jobs
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const hasPermission = await PlanEnforcementService.hasPermission(userId, 'job.complete');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const hasPermission = await PlanEnforcementService.hasPermission(
+      userId,
+      "job.complete"
+    );
     if (!hasPermission) {
-      return res.status(403).json({ error: "Non hai il permesso di completare i lavori" });
+      return res
+        .status(403)
+        .json({ error: "Non hai il permesso di completare i lavori" });
     }
 
     const jobId = Number(req.params.id);
     const { completedDate, actualDuration, notes, photos } = req.body;
-    
+
     if (!completedDate || actualDuration === undefined) {
-      return res.status(400).json({ error: "Data completamento e durata sono richiesti" });
+      return res
+        .status(400)
+        .json({ error: "Data completamento e durata sono richiesti" });
     }
-    
+
     const updatedJob = await storage.updateJob(jobId, {
       status: "completed",
       completedDate: new Date(completedDate),
       actualDuration,
       notes: notes || "",
-      photos: photos || ""
+      photos: photos || "",
     });
-    
+
     res.json(updatedJob);
   } catch (err) {
     console.error("Errore nel completamento del lavoro:", err);
@@ -1908,35 +2123,47 @@ router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
 router.get("/all-clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const clients = await storage.getClients();
-    
+
     // Get user's plan configuration for feature visibility
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
-    
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
+
     // Filter client fields based on plan configuration
     const visibleFields = planConfig?.features?.visible_fields?.clients || [
-      'name', 'email', 'phone', 'address', 'clientType', 'notes', 'location', 'sectors', 'createdAt'
+      "name",
+      "email",
+      "phone",
+      "address",
+      "clientType",
+      "notes",
+      "location",
+      "sectors",
+      "createdAt",
     ];
-    
-    const filteredClients = clients.map(client => {
+
+    const filteredClients = clients.map((client) => {
       const filteredClient: any = {};
-      
+
       // Always include the ID field for functionality purposes
       filteredClient.id = client.id;
-      
+
       // Add other visible fields
-      visibleFields.forEach(field => {
+      visibleFields.forEach((field) => {
         if (client[field as keyof typeof client] !== undefined) {
           filteredClient[field] = client[field as keyof typeof client];
         }
       });
       return filteredClient;
     });
-    
+
     res.json(filteredClients);
   } catch (err) {
     console.error("Errore nell'ottenere i clienti:", err);
@@ -1948,18 +2175,23 @@ router.get("/all-clients", async (req: Request, res: Response) => {
 router.post("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to create clients
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
     // Check client creation permission via deny-by-default
-    const canCreateClients = await PlanEnforcementService.hasPermission(userId, 'client.create');
+    const canCreateClients = await PlanEnforcementService.hasPermission(
+      userId,
+      "client.create"
+    );
     if (!canCreateClients) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di creare nuovi clienti",
         permission: "client.create",
-        required: true
+        required: true,
       });
     }
 
@@ -1975,17 +2207,22 @@ router.post("/clients", async (req: Request, res: Response) => {
 router.patch("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to edit clients
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canEditClients = await PlanEnforcementService.hasPermission(userId, 'client.edit');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canEditClients = await PlanEnforcementService.hasPermission(
+      userId,
+      "client.edit"
+    );
     if (!canEditClients) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di modificare clienti",
-        permission: 'client.edit',
-        required: true
+        permission: "client.edit",
+        required: true,
       });
     }
 
@@ -2005,16 +2242,21 @@ router.patch("/clients/:id", async (req: Request, res: Response) => {
 // Update client (PUT alias)
 router.put("/clients/:id", async (req: Request, res: Response) => {
   try {
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canEditClients = await PlanEnforcementService.hasPermission(userId, 'client.edit');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canEditClients = await PlanEnforcementService.hasPermission(
+      userId,
+      "client.edit"
+    );
     if (!canEditClients) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di modificare clienti",
-        permission: 'client.edit',
-        required: true
+        permission: "client.edit",
+        required: true,
       });
     }
 
@@ -2034,23 +2276,30 @@ router.put("/clients/:id", async (req: Request, res: Response) => {
 router.delete("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId 
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Check if user has permission to delete clients
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const canDeleteClients = await PlanEnforcementService.hasPermission(userId, 'client.delete');
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const canDeleteClients = await PlanEnforcementService.hasPermission(
+      userId,
+      "client.delete"
+    );
     if (!canDeleteClients) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Non hai il permesso di eliminare clienti",
-        permission: 'client.delete',
-        required: true
+        permission: "client.delete",
+        required: true,
       });
     }
 
     const clientId = Number(req.params.id);
     const success = await storage.deleteClient(clientId);
-    console.log(`[API] DELETE /api/mobile/clients/${clientId} success=${success}`);
+    console.log(
+      `[API] DELETE /api/mobile/clients/${clientId} success=${success}`
+    );
     if (!success) {
       return res.status(404).json({ error: "Cliente non trovato" });
     }
@@ -2065,24 +2314,56 @@ router.delete("/clients/:id", async (req: Request, res: Response) => {
 router.get("/plan-configuration", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // Get user's plan configuration
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
-    
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
+
     if (!planConfig) {
       return res.json({
         planId: null,
         features: {},
         visibleFields: {
-          clients: ['name', 'email', 'phone', 'address', 'clientType', 'notes', 'location', 'sectors', 'createdAt'],
-          jobs: ['title', 'description', 'startDate', 'endDate', 'status', 'rate', 'client', 'actualDuration', 'assignedTo', 'photos', 'materialsCost', 'cost', 'location', 'duration', 'completedDate', 'priority', 'materials']
-        }
+          clients: [
+            "name",
+            "email",
+            "phone",
+            "address",
+            "clientType",
+            "notes",
+            "location",
+            "sectors",
+            "createdAt",
+          ],
+          jobs: [
+            "title",
+            "description",
+            "startDate",
+            "endDate",
+            "status",
+            "rate",
+            "client",
+            "actualDuration",
+            "assignedTo",
+            "photos",
+            "materialsCost",
+            "cost",
+            "location",
+            "duration",
+            "completedDate",
+            "priority",
+            "materials",
+          ],
+        },
       });
     }
-    
+
     res.json(planConfig);
   } catch (err) {
     console.error("Errore nell'ottenere la configurazione del piano:", err);
@@ -2093,30 +2374,38 @@ router.get("/plan-configuration", async (req: Request, res: Response) => {
 // Debug endpoint to check user subscriptions
 router.get("/debug-plan", async (req: Request, res: Response) => {
   try {
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-    
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
+
     // Get all user subscriptions
     const allSubscriptions = await storage.getUserSubscriptions();
-    const userSubscriptions = allSubscriptions.filter(sub => sub.userId === userId);
-    
+    const userSubscriptions = allSubscriptions.filter(
+      (sub) => sub.userId === userId
+    );
+
     // Get active subscription
-    const activeSubscription = userSubscriptions.find(sub => sub.status === 'active');
-    
+    const activeSubscription = userSubscriptions.find(
+      (sub) => sub.status === "active"
+    );
+
     // Get plan details
     const plans = await storage.getSubscriptionPlans();
-    const activePlan = activeSubscription ? plans.find(p => p.id === activeSubscription.planId) : null;
-    
+    const activePlan = activeSubscription
+      ? plans.find((p) => p.id === activeSubscription.planId)
+      : null;
+
     res.json({
       userId,
       allSubscriptions: allSubscriptions.length,
       userSubscriptions,
       activeSubscription,
-      activePlan: activePlan ? {
-        id: activePlan.id,
-        name: activePlan.name,
-        features: activePlan.features
-      } : null
+      activePlan: activePlan
+        ? {
+            id: activePlan.id,
+            name: activePlan.name,
+            features: activePlan.features,
+          }
+        : null,
     });
   } catch (err) {
     console.error("Debug plan error:", err);
@@ -2126,23 +2415,31 @@ router.get("/debug-plan", async (req: Request, res: Response) => {
 
 // Get user permissions for mobile app
 router.get("/permissions", async (req: Request, res: Response) => {
- const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+  const mobileData = req.mobileData as unknown as any;
+  console.log("🔍 /permissions called with mobileData:", mobileData);
+  const userId = mobileData.userId;
   try {
-    if (process.env.DEBUG_PERMISSIONS) console.log('🚀 PERMISSIONS ENDPOINT CALLED');
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("🚀 PERMISSIONS ENDPOINT CALLED");
     // Check mobile session authentication
-     
-    const mobileSessionId = req.headers['x-mobile-session-id'] as string;
+
+    const mobileSessionId = req.headers["x-mobile-session-id"] as string;
     if (!userId) {
       console.log("❌ Permissions endpoint - Invalid mobile session:", {
         mobileSessionId,
         globalSessionsExists: !!global.mobileSessions,
-        globalSessionsKeys: global.mobileSessions ? Object.keys(global.mobileSessions) : []
+        globalSessionsKeys: global.mobileSessions
+          ? Object.keys(global.mobileSessions)
+          : [],
       });
       return res.status(401).json({ error: "Non autenticato" });
-    } 
+    }
 
-    if (process.env.DEBUG_PERMISSIONS) console.log("✅ Permissions endpoint - Valid mobile session:", { mobileSessionId, userId });
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("✅ Permissions endpoint - Valid mobile session:", {
+        mobileSessionId,
+        userId,
+      });
 
     // Get user data
     const user = await storage.getUser(userId);
@@ -2151,144 +2448,205 @@ router.get("/permissions", async (req: Request, res: Response) => {
     }
 
     // Get user's plan configuration for field visibility
-    const { PlanEnforcementService } = await import('../services/planEnforcement');
-    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(userId);
-    
-    if (process.env.DEBUG_PERMISSIONS) console.log('🔍 Plan Config Debug:', {
-      userId,
-      planConfig: planConfig ? {
-        planId: planConfig.planId,
-        hasFeatures: !!planConfig.features,
-        hasVisibleFields: !!planConfig.features?.visible_fields,
-        visibleFieldsKeys: planConfig.features?.visible_fields ? Object.keys(planConfig.features.visible_fields) : []
-      } : null
-    });
-    
+    const { PlanEnforcementService } = await import(
+      "../services/planEnforcement"
+    );
+    const planConfig = await PlanEnforcementService.getUserPlanConfiguration(
+      userId
+    );
+
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("🔍 Plan Config Debug:", {
+        userId,
+        planConfig: planConfig
+          ? {
+              planId: planConfig.planId,
+              hasFeatures: !!planConfig.features,
+              hasVisibleFields: !!planConfig.features?.visible_fields,
+              visibleFieldsKeys: planConfig.features?.visible_fields
+                ? Object.keys(planConfig.features.visible_fields)
+                : [],
+            }
+          : null,
+      });
+
     // Get visible fields from plan configuration
     const visibleFields = planConfig?.features?.visible_fields || {};
     const clientVisibleFields = visibleFields.clients || [
-      'name', 'email', 'phone', 'address', 'type', 'notes', 'geoLocation', 'sectorIds', 'createdAt'
+      "name",
+      "email",
+      "phone",
+      "address",
+      "type",
+      "notes",
+      "geoLocation",
+      "sectorIds",
+      "createdAt",
     ];
     const jobVisibleFields = visibleFields.jobs || [
-      'title', 'description', 'startDate', 'endDate', 'status', 'rate', 'client', 'actualDuration', 
-      'assignedTo', 'photos', 'materialsCost', 'cost', 'location', 'duration', 'completedDate', 'priority', 'materials'
+      "title",
+      "description",
+      "startDate",
+      "endDate",
+      "status",
+      "rate",
+      "client",
+      "actualDuration",
+      "assignedTo",
+      "photos",
+      "materialsCost",
+      "cost",
+      "location",
+      "duration",
+      "completedDate",
+      "priority",
+      "materials",
     ];
 
-    if (process.env.DEBUG_PERMISSIONS) console.log('🔍 Field Visibility Debug:', {
-      userId,
-      userType: user.type,
-      visibleFields,
-      clientVisibleFields,
-      jobVisibleFields
-    });
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("🔍 Field Visibility Debug:", {
+        userId,
+        userType: user.type,
+        visibleFields,
+        clientVisibleFields,
+        jobVisibleFields,
+      });
 
     // Apply field visibility overrides based on admin settings
     const fieldVisibilityPermissions = {
       // Client field visibility based on admin settings
-      canViewClientName: clientVisibleFields.includes('name'),
-      canViewClientAddress: clientVisibleFields.includes('address'),
-      canViewClientPhone: clientVisibleFields.includes('phone'),
-      canViewClientEmail: clientVisibleFields.includes('email'),
-      canViewClientType: clientVisibleFields.includes('type'),
-      canViewClientNotes: clientVisibleFields.includes('notes'),
-      canViewClientGeoLocation: clientVisibleFields.includes('geoLocation'),
-      canViewClientSectors: clientVisibleFields.includes('sectorIds'),
-      canViewClientCreatedAt: clientVisibleFields.includes('createdAt'),
-      
+      canViewClientName: clientVisibleFields.includes("name"),
+      canViewClientAddress: clientVisibleFields.includes("address"),
+      canViewClientPhone: clientVisibleFields.includes("phone"),
+      canViewClientEmail: clientVisibleFields.includes("email"),
+      canViewClientType: clientVisibleFields.includes("type"),
+      canViewClientNotes: clientVisibleFields.includes("notes"),
+      canViewClientGeoLocation: clientVisibleFields.includes("geoLocation"),
+      canViewClientSectors: clientVisibleFields.includes("sectorIds"),
+      canViewClientCreatedAt: clientVisibleFields.includes("createdAt"),
+
       // Job field visibility based on admin settings
-      canViewJobTitle: jobVisibleFields.includes('title'),
-      canViewJobDescription: jobVisibleFields.includes('description'),
-      canViewJobStartDate: jobVisibleFields.includes('startDate'),
-      canViewJobEndDate: jobVisibleFields.includes('endDate'),
-      canViewJobStatus: jobVisibleFields.includes('status'),
-      canViewJobRate: jobVisibleFields.includes('rate'),
-      canViewJobClient: jobVisibleFields.includes('clientId'),
-      canViewJobActualDuration: jobVisibleFields.includes('actualDuration'),
-      canViewJobAssignedTo: jobVisibleFields.includes('assignedTo'),
-      canViewJobPhotos: jobVisibleFields.includes('photos'),
-      canViewJobMaterialsCost: jobVisibleFields.includes('materialsCost'),
-      canViewJobCost: jobVisibleFields.includes('cost'),
-      canViewJobLocation: jobVisibleFields.includes('location'),
-      canViewJobDuration: jobVisibleFields.includes('duration'),
-      canViewJobCompletedDate: jobVisibleFields.includes('completedDate'),
-      canViewJobPriority: jobVisibleFields.includes('priority'),
-      canViewJobMaterials: jobVisibleFields.includes('materials'),
-      
+      canViewJobTitle: jobVisibleFields.includes("title"),
+      canViewJobDescription: jobVisibleFields.includes("description"),
+      canViewJobStartDate: jobVisibleFields.includes("startDate"),
+      canViewJobEndDate: jobVisibleFields.includes("endDate"),
+      canViewJobStatus: jobVisibleFields.includes("status"),
+      canViewJobRate: jobVisibleFields.includes("rate"),
+      canViewJobClient: jobVisibleFields.includes("clientId"),
+      canViewJobActualDuration: jobVisibleFields.includes("actualDuration"),
+      canViewJobAssignedTo: jobVisibleFields.includes("assignedTo"),
+      canViewJobPhotos: jobVisibleFields.includes("photos"),
+      canViewJobMaterialsCost: jobVisibleFields.includes("materialsCost"),
+      canViewJobCost: jobVisibleFields.includes("cost"),
+      canViewJobLocation: jobVisibleFields.includes("location"),
+      canViewJobDuration: jobVisibleFields.includes("duration"),
+      canViewJobCompletedDate: jobVisibleFields.includes("completedDate"),
+      canViewJobPriority: jobVisibleFields.includes("priority"),
+      canViewJobMaterials: jobVisibleFields.includes("materials"),
+
       // Registration field visibility based on admin settings
-      canViewRegistrationDate: (visibleFields.registration || []).includes('date'),
-      canViewRegistrationTime: (visibleFields.registration || []).includes('time'),
-      canViewRegistrationActivity: (visibleFields.registration || []).includes('activityId'),
-      canViewRegistrationDuration: (visibleFields.registration || []).includes('duration'),
-      canViewRegistrationPhotos: (visibleFields.registration || []).includes('photos'),
-      canViewRegistrationLocation: (visibleFields.registration || []).includes('location'),
-      canViewRegistrationJob: (visibleFields.registration || []).includes('jobId'),
-      canViewRegistrationNotes: (visibleFields.registration || []).includes('notes'),
-      canViewRegistrationMaterials: (visibleFields.registration || []).includes('materials'),
-      canViewRegistrationSignature: (visibleFields.registration || []).includes('signature'),
+      canViewRegistrationDate: (visibleFields.registration || []).includes(
+        "date"
+      ),
+      canViewRegistrationTime: (visibleFields.registration || []).includes(
+        "time"
+      ),
+      canViewRegistrationActivity: (visibleFields.registration || []).includes(
+        "activityId"
+      ),
+      canViewRegistrationDuration: (visibleFields.registration || []).includes(
+        "duration"
+      ),
+      canViewRegistrationPhotos: (visibleFields.registration || []).includes(
+        "photos"
+      ),
+      canViewRegistrationLocation: (visibleFields.registration || []).includes(
+        "location"
+      ),
+      canViewRegistrationJob: (visibleFields.registration || []).includes(
+        "jobId"
+      ),
+      canViewRegistrationNotes: (visibleFields.registration || []).includes(
+        "notes"
+      ),
+      canViewRegistrationMaterials: (visibleFields.registration || []).includes(
+        "materials"
+      ),
+      canViewRegistrationSignature: (visibleFields.registration || []).includes(
+        "signature"
+      ),
     };
 
     // For all users, apply field visibility settings
     const isAdmin = user.type === "admin";
-    
+
     // Base permissions for all users
     const basePermissions = {
-        // Admin users get full permissions, others get limited permissions
-        canViewClients: isAdmin,
-        canEditClients: isAdmin,
-        canCreateClients: isAdmin,
-        canDeleteClients: isAdmin,
-        canViewClientDetails: isAdmin,
-        canViewClientSensitiveData: isAdmin,
-        canViewJobs: true, // All users can view jobs
-        canEditJobs: isAdmin,
-        canCreateJobs: true, // All users can create jobs
-        canDeleteJobs: isAdmin,
-        canViewJobDetails: true, // All users can view job details
-        canViewJobFinancials: isAdmin,
-        canUpdateJobStatus: true, // All users can update job status
-        canAddJobNotes: true, // All users can add notes
-        canUploadJobPhotos: true, // All users can upload photos
-        canViewReports: isAdmin,
-        canCreateReports: isAdmin,
-        canExportReports: isAdmin,
-        canViewFinancialReports: isAdmin,
-        canViewPerformanceMetrics: isAdmin,
-        canViewInvoices: isAdmin,
-        canEditInvoices: isAdmin,
-        canCreateInvoices: isAdmin,
-        canDeleteInvoices: isAdmin,
-        canViewInvoiceAmounts: isAdmin,
-        canViewPaymentHistory: isAdmin,
-        canTrackTime: true, // All users can track time
-        canViewTimeEntries: true, // All users can view their time entries
-        canEditTimeEntries: true, // All users can edit their time entries
-        canViewActivityLogs: isAdmin,
-        canViewMaterials: true, // All users can view materials
-        canEditMaterials: isAdmin,
-        canViewInventory: isAdmin,
-        canUpdateInventory: isAdmin,
-        canSendNotifications: isAdmin,
-        canViewMessages: true, // All users can view messages
-        canSendMessages: true, // All users can send messages
-        canViewSystemAlerts: isAdmin,
+      // Admin users get full permissions, others get limited permissions
+      canViewClients: isAdmin,
+      canEditClients: isAdmin,
+      canCreateClients: isAdmin,
+      canDeleteClients: isAdmin,
+      canViewClientDetails: isAdmin,
+      canViewClientSensitiveData: isAdmin,
+      canViewJobs: true, // All users can view jobs
+      canEditJobs: isAdmin,
+      canCreateJobs: true, // All users can create jobs
+      canDeleteJobs: isAdmin,
+      canViewJobDetails: true, // All users can view job details
+      canViewJobFinancials: isAdmin,
+      canUpdateJobStatus: true, // All users can update job status
+      canAddJobNotes: true, // All users can add notes
+      canUploadJobPhotos: true, // All users can upload photos
+      canViewReports: isAdmin,
+      canCreateReports: isAdmin,
+      canExportReports: isAdmin,
+      canViewFinancialReports: isAdmin,
+      canViewPerformanceMetrics: isAdmin,
+      canViewInvoices: isAdmin,
+      canEditInvoices: isAdmin,
+      canCreateInvoices: isAdmin,
+      canDeleteInvoices: isAdmin,
+      canViewInvoiceAmounts: isAdmin,
+      canViewPaymentHistory: isAdmin,
+      canTrackTime: true, // All users can track time
+      canViewTimeEntries: true, // All users can view their time entries
+      canEditTimeEntries: true, // All users can edit their time entries
+      canViewActivityLogs: isAdmin,
+      canViewMaterials: true, // All users can view materials
+      canEditMaterials: isAdmin,
+      canViewInventory: isAdmin,
+      canUpdateInventory: isAdmin,
+      canSendNotifications: isAdmin,
+      canViewMessages: true, // All users can view messages
+      canSendMessages: true, // All users can send messages
+      canViewSystemAlerts: isAdmin,
     };
 
     // Merge base permissions with field visibility
-    const finalPermissions = { ...basePermissions, ...fieldVisibilityPermissions };
-    
-    if (process.env.DEBUG_PERMISSIONS) console.log('🔍 Final Permissions Debug:', {
-      userId,
-      userType: user.type,
-      isAdmin,
-      fieldVisibilityPermissions: Object.keys(fieldVisibilityPermissions).filter(k => k.startsWith('canViewClient')),
-      finalPermissions: Object.keys(finalPermissions).filter(k => k.startsWith('canViewClient')),
-      clientVisibleFields,
-      visibleFieldsResponse: {
-        clients: clientVisibleFields,
-        jobs: jobVisibleFields
-      }
-    });
-    
+    const finalPermissions = {
+      ...basePermissions,
+      ...fieldVisibilityPermissions,
+    };
+
+    if (process.env.DEBUG_PERMISSIONS)
+      console.log("🔍 Final Permissions Debug:", {
+        userId,
+        userType: user.type,
+        isAdmin,
+        fieldVisibilityPermissions: Object.keys(
+          fieldVisibilityPermissions
+        ).filter((k) => k.startsWith("canViewClient")),
+        finalPermissions: Object.keys(finalPermissions).filter((k) =>
+          k.startsWith("canViewClient")
+        ),
+        clientVisibleFields,
+        visibleFieldsResponse: {
+          clients: clientVisibleFields,
+          jobs: jobVisibleFields,
+        },
+      });
+
     return res.json({
       userId: user.id,
       type: user.type,
@@ -2301,22 +2659,21 @@ router.get("/permissions", async (req: Request, res: Response) => {
         collaborators: visibleFields.collaborators || [],
         profile: visibleFields.profile || [],
         dashboard: visibleFields.dashboard || [],
-        registration: visibleFields.registration || []
-      }
+        registration: visibleFields.registration || [],
+      },
     });
-
   } catch (error) {
     console.error("Error getting permissions:", error);
     res.status(500).json({ error: "Errore interno del server" });
   }
 });
-
+ 
 // Get all job types
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobTypes = await storage.getJobTypes();
     res.json(jobTypes);
@@ -2330,8 +2687,8 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.get("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const activities = await storage.getActivities();
     res.json(activities);
@@ -2347,8 +2704,8 @@ router.get("/activities", async (req: Request, res: Response) => {
 router.get("/notification-preferences", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // For now, return default preferences
     // In a real app, you'd fetch from a user_preferences table
@@ -2358,12 +2715,12 @@ router.get("/notification-preferences", async (req: Request, res: Response) => {
       globalPush: true,
       activityNotifications: {
         enabled: true,
-        method: 'both',
-        timing: 'immediate',
+        method: "both",
+        timing: "immediate",
       },
       collaboratorCreationNotifications: {
         enabled: true,
-        method: 'email',
+        method: "email",
       },
     };
 
@@ -2375,22 +2732,28 @@ router.get("/notification-preferences", async (req: Request, res: Response) => {
 });
 
 // Update notification preferences
-router.patch("/notification-preferences", async (req: Request, res: Response) => {
-  try {
-    // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+router.patch(
+  "/notification-preferences",
+  async (req: Request, res: Response) => {
+    try {
+      // Check mobile session authentication
+      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const userId = mobileData.userId;
 
-    // For now, just return the updated preferences
-    // In a real app, you'd save to a user_preferences table
-    const updatedPreferences = req.body;
+      // For now, just return the updated preferences
+      // In a real app, you'd save to a user_preferences table
+      const updatedPreferences = req.body;
 
-    res.json(updatedPreferences);
-  } catch (err) {
-    console.error("Errore nell'aggiornamento delle preferenze di notifica:", err);
-    res.status(500).json({ error: "Errore nel server" });
+      res.json(updatedPreferences);
+    } catch (err) {
+      console.error(
+        "Errore nell'aggiornamento delle preferenze di notifica:",
+        err
+      );
+      res.status(500).json({ error: "Errore nel server" });
+    }
   }
-});
+);
 
 // COMPANY ENDPOINTS
 
@@ -2398,8 +2761,8 @@ router.patch("/notification-preferences", async (req: Request, res: Response) =>
 router.get("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // For now, return default company data
     // In a real app, you'd fetch from a company table
@@ -2415,7 +2778,7 @@ router.get("/company", async (req: Request, res: Response) => {
       email: "info@azienda.it",
       phone: "+39 02 1234567",
       website: "www.azienda.it",
-      logo: ""
+      logo: "",
     };
 
     res.json(defaultCompany);
@@ -2429,8 +2792,8 @@ router.get("/company", async (req: Request, res: Response) => {
 router.patch("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     // For now, just return the updated company data
     // In a real app, you'd save to a company table
@@ -2447,8 +2810,8 @@ router.patch("/company", async (req: Request, res: Response) => {
 router.post("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const newActivity = await storage.createActivity(req.body);
     res.status(201).json(newActivity);
@@ -2462,16 +2825,16 @@ router.post("/activities", async (req: Request, res: Response) => {
 router.patch("/activities/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const activityId = Number(req.params.id);
     const updatedActivity = await storage.updateActivity(activityId, req.body);
-    
+
     if (!updatedActivity) {
       return res.status(404).json({ error: "Attività non trovata" });
     }
-    
+
     res.json(updatedActivity);
   } catch (err) {
     console.error("Errore nell'aggiornamento dell'attività:", err);
@@ -2483,25 +2846,25 @@ router.patch("/activities/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.jobId);
     const { activityId, notes, estimatedDuration } = req.body;
-    
+
     if (!activityId) {
       return res.status(400).json({ error: "ID attività richiesto" });
     }
-    
+
     const jobActivity = await storage.createJobActivity({
       jobId,
       activityId,
       startDate: new Date(),
       duration: estimatedDuration || "1.00",
       notes: notes || "",
-      status: "assigned"
+      status: "assigned",
     });
-    
+
     res.status(201).json(jobActivity);
   } catch (err) {
     console.error("Errore nell'assegnazione dell'attività:", err);
@@ -2510,44 +2873,50 @@ router.post("/jobs/:jobId/activities", async (req: Request, res: Response) => {
 });
 
 // Complete activity
-router.post("/job-activities/:id/complete", async (req: Request, res: Response) => {
-  try {
-    // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+router.post(
+  "/job-activities/:id/complete",
+  async (req: Request, res: Response) => {
+    try {
+      // Check mobile session authentication
+      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const userId = mobileData.userId;
 
-    const jobActivityId = Number(req.params.id);
-    const { actualDuration, notes, photos } = req.body;
-    
-    if (!actualDuration) {
-      return res.status(400).json({ error: "Durata effettiva richiesta" });
+      const jobActivityId = Number(req.params.id);
+      const { actualDuration, notes, photos } = req.body;
+
+      if (!actualDuration) {
+        return res.status(400).json({ error: "Durata effettiva richiesta" });
+      }
+
+      const updatedJobActivity = await storage.updateJobActivity(
+        jobActivityId,
+        {
+          actualDuration,
+          notes: notes || "",
+          photos: photos || "",
+          status: "completed",
+          completedDate: new Date(),
+        }
+      );
+
+      res.json(updatedJobActivity);
+    } catch (err) {
+      console.error("Errore nel completamento dell'attività:", err);
+      res.status(500).json({ error: "Errore nel server" });
     }
-    
-    const updatedJobActivity = await storage.updateJobActivity(jobActivityId, {
-      actualDuration,
-      notes: notes || "",
-      photos: photos || "",
-      status: "completed",
-      completedDate: new Date()
-    });
-    
-    res.json(updatedJobActivity);
-  } catch (err) {
-    console.error("Errore nel completamento dell'attività:", err);
-    res.status(500).json({ error: "Errore nel server" });
   }
-});
+);
 
 // Get job activities
 router.get("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
+    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const userId = mobileData.userId;
 
     const jobId = Number(req.params.jobId);
     const jobActivities = await storage.getJobActivitiesByJob(jobId);
-    
+
     res.json(jobActivities);
   } catch (err) {
     console.error("Errore nell'ottenere le attività del lavoro:", err);
@@ -2556,103 +2925,124 @@ router.get("/jobs/:jobId/activities", async (req: Request, res: Response) => {
 });
 
 // Update existing subscription (plan change)
-router.put("/subscriptions/:subscriptionId", async (req: Request, res: Response) => {
-  try {
-    const { subscriptionId } = req.params;
-    const { planId, billingFrequency = "monthly", paymentMethod, paymentInfo } = req.body;
-    
-    if (!planId) {
-      return res.status(400).json({ error: "ID del piano richiesto" });
-    }
+router.put(
+  "/subscriptions/:subscriptionId",
+  async (req: Request, res: Response) => {
+    try {
+      const { subscriptionId } = req.params;
+      const {
+        planId,
+        billingFrequency = "monthly",
+        paymentMethod,
+        paymentInfo,
+      } = req.body;
 
-    // Check mobile session authentication
-     const mobileData = JSON.parse(req.cookies.mobile_data)
-    const userId = mobileData.userId
-
-    // Get current subscription
-    const currentSubscription = await storage.getUserSubscription(parseInt(subscriptionId));
-    if (!currentSubscription || currentSubscription.userId !== userId) {
-      return res.status(404).json({ error: "Abbonamento non trovato" });
-    }
-
-    // Get new plan
-    const newPlan = await storage.getSubscriptionPlan(planId);
-    if (!newPlan) {
-      return res.status(404).json({ error: "Piano non trovato" });
-    }
-
-    // Check if it's a free plan
-    const isFreePlan = newPlan.isFree || parseFloat(newPlan.monthlyPrice) === 0;
-
-    // Process payment for paid plans
-    if (!isFreePlan) {
-      if (!paymentMethod) {
-        return res.status(400).json({ error: "Metodo di pagamento richiesto per piani a pagamento" });
+      if (!planId) {
+        return res.status(400).json({ error: "ID del piano richiesto" });
       }
 
-      if (paymentMethod === "credit_card") {
-        const { paymentIntentId } = req.body;
-        
-        if (!paymentIntentId) {
-          return res.status(400).json({ error: "Payment Intent ID richiesto per pagamenti con carta" });
-        }
+      // Check mobile session authentication
+      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const userId = mobileData.userId;
 
-        try {
-          // Verify the payment intent with Stripe
-          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-          
-          if (paymentIntent.status !== 'succeeded') {
-            return res.status(400).json({ 
-              error: "Pagamento non completato", 
-              details: "Il pagamento non è stato completato con successo"
-            });
-          }
+      // Get current subscription
+      const currentSubscription = await storage.getUserSubscription(
+        parseInt(subscriptionId)
+      );
+      if (!currentSubscription || currentSubscription.userId !== userId) {
+        return res.status(404).json({ error: "Abbonamento non trovato" });
+      }
 
-          // Verify the amount matches the plan price
-          const expectedAmount = billingFrequency === "monthly" 
-            ? Math.round(parseFloat(newPlan.monthlyPrice) * 100)
-            : Math.round(parseFloat(newPlan.yearlyPrice) * 100);
-            
-          if (paymentIntent.amount !== expectedAmount) {
-            return res.status(400).json({ 
-              error: "Importo non corrispondente", 
-              details: "L'importo pagato non corrisponde al prezzo del piano"
-            });
-          }
-        } catch (stripeError: any) {
-          console.error('Stripe payment verification error:', stripeError);
-          return res.status(400).json({ 
-            error: "Errore nella verifica del pagamento", 
-            details: stripeError.message || "Errore sconosciuto"
+      // Get new plan
+      const newPlan = await storage.getSubscriptionPlan(planId);
+      if (!newPlan) {
+        return res.status(404).json({ error: "Piano non trovato" });
+      }
+
+      // Check if it's a free plan
+      const isFreePlan =
+        newPlan.isFree || parseFloat(newPlan.monthlyPrice) === 0;
+
+      // Process payment for paid plans
+      if (!isFreePlan) {
+        if (!paymentMethod) {
+          return res.status(400).json({
+            error: "Metodo di pagamento richiesto per piani a pagamento",
           });
         }
+
+        if (paymentMethod === "credit_card") {
+          const { paymentIntentId } = req.body;
+
+          if (!paymentIntentId) {
+            return res.status(400).json({
+              error: "Payment Intent ID richiesto per pagamenti con carta",
+            });
+          }
+
+          try {
+            // Verify the payment intent with Stripe
+            const paymentIntent = await stripe.paymentIntents.retrieve(
+              paymentIntentId
+            );
+
+            if (paymentIntent.status !== "succeeded") {
+              return res.status(400).json({
+                error: "Pagamento non completato",
+                details: "Il pagamento non è stato completato con successo",
+              });
+            }
+
+            // Verify the amount matches the plan price
+            const expectedAmount =
+              billingFrequency === "monthly"
+                ? Math.round(parseFloat(newPlan.monthlyPrice) * 100)
+                : Math.round(parseFloat(newPlan.yearlyPrice) * 100);
+
+            if (paymentIntent.amount !== expectedAmount) {
+              return res.status(400).json({
+                error: "Importo non corrispondente",
+                details: "L'importo pagato non corrisponde al prezzo del piano",
+              });
+            }
+          } catch (stripeError: any) {
+            console.error("Stripe payment verification error:", stripeError);
+            return res.status(400).json({
+              error: "Errore nella verifica del pagamento",
+              details: stripeError.message || "Errore sconosciuto",
+            });
+          }
+        }
       }
+
+      // Calculate new dates
+      const startDate = new Date();
+      let endDate = new Date();
+
+      if (billingFrequency === "monthly" && newPlan.monthlyDuration) {
+        endDate.setDate(endDate.getDate() + newPlan.monthlyDuration);
+      } else if (billingFrequency === "yearly" && newPlan.yearlyDuration) {
+        endDate.setDate(endDate.getDate() + newPlan.yearlyDuration);
+      }
+
+      // Update subscription
+      const updatedSubscription = await storage.updateUserSubscription(
+        parseInt(subscriptionId),
+        {
+          planId,
+          billingFrequency,
+          startDate,
+          endDate,
+          status: isFreePlan ? "active" : "active",
+        }
+      );
+
+      res.json(updatedSubscription);
+    } catch (err) {
+      console.error("Errore nell'aggiornamento dell'abbonamento:", err);
+      res.status(500).json({ error: "Errore nel server" });
     }
-
-    // Calculate new dates
-    const startDate = new Date();
-    let endDate = new Date();
-    
-    if (billingFrequency === "monthly" && newPlan.monthlyDuration) {
-      endDate.setDate(endDate.getDate() + newPlan.monthlyDuration);
-    } else if (billingFrequency === "yearly" && newPlan.yearlyDuration) {
-      endDate.setDate(endDate.getDate() + newPlan.yearlyDuration);
-    }
-
-    // Update subscription
-    const updatedSubscription = await storage.updateUserSubscription(parseInt(subscriptionId), {
-      planId,
-      billingFrequency,
-      startDate,
-      endDate,
-      status: isFreePlan ? "active" : "active"
-    });
-
-    res.json(updatedSubscription);
-  } catch (err) {
-    console.error("Errore nell'aggiornamento dell'abbonamento:", err);
-    res.status(500).json({ error: "Errore nel server" });
   }
-});
+);
 
 export default router;
