@@ -33,6 +33,9 @@ app.use(
       "http://localhost:5173",
       "http://localhost:4173",
       "https://artigianofast.com",
+      "https://artigianofast.peakfinancetrade.com",
+      "http://artigianofast.peakfinancetrade.com",
+
       "http://localhost", // Common for Capacitor webviews
       "https://localhost", // For secure contexts
       "capacitor://localhost", // Standard Capacitor scheme
