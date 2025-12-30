@@ -456,7 +456,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
     // }
 
     // const userId = global.mobileSessions[mobileSessionId];
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any;
     const userId = mobileData.userId;
 
     // Ottieni dati utente dal db
@@ -497,7 +497,7 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       // Controlla se l'utente è autenticato
-      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const mobileData = req.mobileData as unknown as any
       const userId = mobileData.userId;
       if (!userId) {
         return res.status(401).json({ error: "Non autenticato" });
@@ -520,7 +520,7 @@ router.get(
 router.get("/jobs/assigned", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get jobs assigned to the current user
@@ -547,7 +547,7 @@ router.get("/jobs/:id", async (req: Request, res: Response) => {
     // }
 
     // const userId = global.mobileSessions[mobileSessionId];
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -578,7 +578,7 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
 
     // const userId = global.mobileSessions[mobileSessionId];
 
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to edit jobs
@@ -625,7 +625,7 @@ router.put("/jobs/:id", async (req: Request, res: Response) => {
 router.delete("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to delete jobs
@@ -675,7 +675,7 @@ router.delete("/jobs/:id", async (req: Request, res: Response) => {
 router.get("/calendar", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const { startDate, endDate, view } = req.query;
@@ -717,7 +717,7 @@ router.get("/calendar", async (req: Request, res: Response) => {
 router.get("/calendar/today", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const today = new Date();
@@ -751,7 +751,7 @@ router.get("/calendar/today", async (req: Request, res: Response) => {
 router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -792,7 +792,7 @@ router.post("/jobs/:id/assign", async (req: Request, res: Response) => {
 router.get("/users/available", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get all active users
@@ -819,7 +819,7 @@ router.get("/users/available", async (req: Request, res: Response) => {
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobTypes = await storage.getJobTypes();
@@ -834,7 +834,7 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.post("/job-types", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated and is admin
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const currentUser = await storage.getUser(userId);
@@ -870,7 +870,7 @@ router.post("/job-types", async (req: Request, res: Response) => {
 router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -916,7 +916,7 @@ router.post("/jobs/:id/notes", async (req: Request, res: Response) => {
 router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -966,7 +966,7 @@ router.post("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -998,7 +998,7 @@ router.get("/jobs/:id/photos", async (req: Request, res: Response) => {
 router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -1051,7 +1051,7 @@ router.post("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -1085,7 +1085,7 @@ router.get("/jobs/:id/collaborators", async (req: Request, res: Response) => {
 router.get("/jobs/:id/team", async (req: Request, res: Response) => {
   try {
     // Check if user is authenticated
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.id);
@@ -1157,7 +1157,7 @@ router.post("/subscriptions", async (req: Request, res: Response) => {
     }
 
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Ottieni il piano di abbonamento
@@ -1296,7 +1296,7 @@ router.get("/subscription-plans/:id", async (req: Request, res: Response) => {
 router.get("/user-subscription", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Ottieni abbonamento
@@ -1325,7 +1325,7 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       // Check mobile session authentication
-      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const mobileData = req.mobileData as unknown as any
       const userId = mobileData.userId;
 
       // Check if activity management is enabled for this user's plan
@@ -1353,7 +1353,7 @@ router.get(
 router.get("/stats", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get user data
@@ -1491,7 +1491,7 @@ router.get("/today-appointments", async (req: Request, res: Response) => {
 router.get("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const clients = await storage.getClients();
@@ -1802,7 +1802,7 @@ router.get("/collaborators/:id", async (req: Request, res: Response) => {
 router.post("/collaborators", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to create collaborators
@@ -1833,7 +1833,7 @@ router.post("/collaborators", async (req: Request, res: Response) => {
 router.patch("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to edit collaborators
@@ -1873,7 +1873,7 @@ router.patch("/collaborators/:id", async (req: Request, res: Response) => {
 router.delete("/collaborators/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to delete collaborators
@@ -1911,7 +1911,7 @@ router.delete("/collaborators/:id", async (req: Request, res: Response) => {
 router.get("/all-jobs", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get user's plan configuration for permissions and feature visibility
@@ -1979,12 +1979,10 @@ router.post("/jobs", async (req: Request, res: Response) => {
   try {
     console.log("🚀 POST /jobs route called");
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
     console.log(`✅ Authenticated user: ${userId}`);
 
-    // Set userId in session for plan enforcement
-    (req.session as any).userId = userId;
 
     // Check permission to create jobs
     console.log("🔍 Checking job creation permission...");
@@ -2043,7 +2041,7 @@ router.post("/jobs", async (req: Request, res: Response) => {
 router.patch("/jobs/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check permission to edit jobs
@@ -2078,7 +2076,7 @@ router.patch("/jobs/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check permission to complete jobs
@@ -2123,7 +2121,7 @@ router.post("/jobs/:id/complete", async (req: Request, res: Response) => {
 router.get("/all-clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const clients = await storage.getClients();
@@ -2175,7 +2173,7 @@ router.get("/all-clients", async (req: Request, res: Response) => {
 router.post("/clients", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to create clients
@@ -2207,7 +2205,7 @@ router.post("/clients", async (req: Request, res: Response) => {
 router.patch("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to edit clients
@@ -2242,7 +2240,7 @@ router.patch("/clients/:id", async (req: Request, res: Response) => {
 // Update client (PUT alias)
 router.put("/clients/:id", async (req: Request, res: Response) => {
   try {
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const { PlanEnforcementService } = await import(
@@ -2276,7 +2274,7 @@ router.put("/clients/:id", async (req: Request, res: Response) => {
 router.delete("/clients/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Check if user has permission to delete clients
@@ -2314,7 +2312,7 @@ router.delete("/clients/:id", async (req: Request, res: Response) => {
 router.get("/plan-configuration", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get user's plan configuration
@@ -2374,7 +2372,7 @@ router.get("/plan-configuration", async (req: Request, res: Response) => {
 // Debug endpoint to check user subscriptions
 router.get("/debug-plan", async (req: Request, res: Response) => {
   try {
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // Get all user subscriptions
@@ -2672,7 +2670,7 @@ router.get("/permissions", async (req: Request, res: Response) => {
 router.get("/job-types", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobTypes = await storage.getJobTypes();
@@ -2687,7 +2685,7 @@ router.get("/job-types", async (req: Request, res: Response) => {
 router.get("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const activities = await storage.getActivities();
@@ -2704,7 +2702,7 @@ router.get("/activities", async (req: Request, res: Response) => {
 router.get("/notification-preferences", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // For now, return default preferences
@@ -2737,7 +2735,7 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       // Check mobile session authentication
-      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const mobileData = req.mobileData as unknown as any
       const userId = mobileData.userId;
 
       // For now, just return the updated preferences
@@ -2761,7 +2759,7 @@ router.patch(
 router.get("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // For now, return default company data
@@ -2792,7 +2790,7 @@ router.get("/company", async (req: Request, res: Response) => {
 router.patch("/company", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     // For now, just return the updated company data
@@ -2810,7 +2808,7 @@ router.patch("/company", async (req: Request, res: Response) => {
 router.post("/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const newActivity = await storage.createActivity(req.body);
@@ -2825,7 +2823,7 @@ router.post("/activities", async (req: Request, res: Response) => {
 router.patch("/activities/:id", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const activityId = Number(req.params.id);
@@ -2846,7 +2844,7 @@ router.patch("/activities/:id", async (req: Request, res: Response) => {
 router.post("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.jobId);
@@ -2878,7 +2876,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       // Check mobile session authentication
-      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const mobileData = req.mobileData as unknown as any
       const userId = mobileData.userId;
 
       const jobActivityId = Number(req.params.id);
@@ -2911,7 +2909,7 @@ router.post(
 router.get("/jobs/:jobId/activities", async (req: Request, res: Response) => {
   try {
     // Check mobile session authentication
-    const mobileData = JSON.parse(req.cookies.mobile_data);
+    const mobileData = req.mobileData as unknown as any
     const userId = mobileData.userId;
 
     const jobId = Number(req.params.jobId);
@@ -2942,7 +2940,7 @@ router.put(
       }
 
       // Check mobile session authentication
-      const mobileData = JSON.parse(req.cookies.mobile_data);
+      const mobileData = req.mobileData as unknown as any
       const userId = mobileData.userId;
 
       // Get current subscription

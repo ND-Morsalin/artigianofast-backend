@@ -4707,16 +4707,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         // Check mobile session authentication
-        const mobileSessionId = req.headers["x-mobile-session-id"] as string;
-        if (
-          !mobileSessionId ||
-          !global.mobileSessions ||
-          !global.mobileSessions[mobileSessionId]
-        ) {
-          return res.status(401).json({ error: "Non autenticato" });
-        }
+        const mobileData = req.mobileData as unknown as any;
 
-        const userId = global.mobileSessions[mobileSessionId];
+        const userId = mobileData?.userId;
 
         // Check if user has permission to register activities
         const { PlanEnforcementService } = await import(
