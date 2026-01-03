@@ -9,7 +9,6 @@ import {
   addPlanInfo,
 } from "../middleware/planEnforcement";
 import { JwtInstance } from "../jwt/jwt";
-import PlanEnforcementService from "../services/planEnforcement";
 
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -125,8 +124,18 @@ router.post("/register", async (req: Request, res: Response) => {
 
     // Rimuovi la password dai dati utente per sicurezza
     const { password: _, ...userDataSafe } = newUser;
+    // send  mobile_data_token for mobile app
+    const mobileData: { userId: number; mobileSessionId: string } = {
+      userId: newUser.id,
+      mobileSessionId,
+    };
+    const mobileAccessToken = await JwtInstance.generateMobileDataTokens(
+      mobileData
+    );
 
-    res.status(201).json({ ...userDataSafe, mobileSessionId });
+    res.status(201).json({ ...userDataSafe, mobileSessionId ,
+      mobile_data_token: mobileAccessToken.mobile_data_token
+    });
   } catch (err) {
     console.error("Errore nella registrazione:", err);
     res.status(500).json({ error: "Errore nel server" });
@@ -357,7 +366,7 @@ router.post("/login", async (req: Request, res: Response) => {
     const mobileAccessToken = await JwtInstance.generateMobileDataTokens(
       mobileData
     );
-    console.log({ mobileData });
+    console.log({ mobileData },"Mobile data");
     // Return mobile session ID for mobile app
     const { password: _, ...userData } = user;
     res.json({
@@ -1549,6 +1558,23 @@ router.post("/jobtypes", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Errore nel server" });
   }
 });
+  router.get("/subscription", async (req: Request, res: Response) => {
+    try {
+      const mobileData = req.mobileData as any;
+      const subscription = await storage.getUserSubscription(mobileData.userId);
+ console.log("Fetched subscription:", subscription, mobileData, "mobileData");
+      if (!subscription) {
+        return res.status(404).json({ message: "User subscription not found" });
+      }
+
+      return res.json(subscription);
+    } catch (error) {
+      console.log(`Error fetching user subscription: ${error}`, "subscription");
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch user subscription" });
+    }
+  });
 
 // Aggiornamento di un tipo di lavoro
 router.patch("/jobtypes/:id", async (req: Request, res: Response) => {
@@ -2665,7 +2691,7 @@ router.get("/permissions", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Errore interno del server" });
   }
 });
- 
+
 // Get all job types
 router.get("/job-types", async (req: Request, res: Response) => {
   try {

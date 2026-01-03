@@ -648,7 +648,7 @@ export class MySQLStorage implements IStorage {
     const result = await this.db
       .select()
       .from(userSubscriptions)
-      .where(eq(userSubscriptions.id, id))
+      .where(eq(userSubscriptions.userId, id))
       .limit(1);
     return result[0];
   }
@@ -675,7 +675,7 @@ export class MySQLStorage implements IStorage {
     const insertId = result[0].insertId;
     if (!insertId) throw new Error("Failed to get insert ID");
 
-    const newSubscription = await this.getUserSubscription(insertId);
+    const newSubscription = await this.getUserSubscription(subscription.userId);
     if (!newSubscription) throw new Error("Failed to create user subscription");
     return newSubscription;
   }
