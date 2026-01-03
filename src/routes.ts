@@ -2503,6 +2503,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .json({ message: "Failed to fetch subscription plans" });
     }
   });
+  app.get("/api/subscription",  async (req: Request, res: Response) => {
+      try {
+         const mobileData = req.mobileData as any
+        const subscription = await storage.getUserSubscription(mobileData.userId);
+
+        if (!subscription) {
+          return res
+            .status(404)
+            .json({ message: "User subscription not found" });
+        }
+
+        return res.json(subscription);
+      } catch (error) {
+        console.log(
+          `Error fetching user subscription: ${error}`,
+          "subscription"
+        );
+        return res
+          .status(500)
+          .json({ message: "Failed to fetch user subscription" });
+      }
+    }
+  );
 
   // Get a specific subscription plan
   app.get(
@@ -2711,6 +2734,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+  // Get a specific user subscription
+  
 
   // Get subscription by user ID
   app.get(
