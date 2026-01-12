@@ -53,6 +53,7 @@ app.use(
       "x-mobile_data_token",
       "x-refresh-token",
       "x-admin_access_token",
+      "x-platform",
     ],
   })
 );
@@ -109,6 +110,8 @@ app.use(
 // );
 
 app.use((req, res, next) => {
+  // console log of the requested path
+  console.log(`Incoming request: ${req.method} ${req.path}`);
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
@@ -139,9 +142,14 @@ app.use((req, res, next) => {
   const mobileDataToken = req.headers["x-mobile_data_token"];
   const adminAccessToken = req.headers["x-admin_access_token"];
   const mobileSessionId = req.headers["x-mobile-session-id"];
+  console.log({ platform: req.headers["x-platform"] });
 
-  const mobileData = JwtInstance.verifyToken(mobileDataToken as string);
-  const adminData = JwtInstance.verifyToken(adminAccessToken as string);
+  const mobileData = mobileDataToken
+    ? JwtInstance.verifyToken(mobileDataToken as string)
+    : null;
+  const adminData = adminAccessToken
+    ? JwtInstance.verifyToken(adminAccessToken as string)
+    : null;
   // console.log({ mobileData, adminData });
 
   req.mobileData = mobileData;
@@ -178,7 +186,7 @@ app.use((req, res, next) => {
   server.listen(
     {
       port: Number(port),
-      host: process.env.HOST || "0.0.0.0", // Listen on all network interfaces for mobile app
+      host:  "0.0.0.0", // Listen on all network interfaces for mobile app
     },
     () => {
       console.log(`serving on port ${port} on all network interfaces`);
