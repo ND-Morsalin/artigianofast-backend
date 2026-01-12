@@ -50,9 +50,9 @@ app.use(
       "Accept",
       "Origin",
       "x-mobile-session-id",
-      "x-mobile_data_token",
+      "x-mobile-data-token",
       "x-refresh-token",
-      "x-admin_access_token",
+      "x-admin-access-token",
       "x-platform",
     ],
   })
@@ -140,8 +140,8 @@ app.use((req, res, next) => {
   });
   // set req to user data
   // console.log(req.headers)
-  const mobileDataToken = req.headers["x-mobile_data_token"];
-  const adminAccessToken = req.headers["x-admin_access_token"];
+  const mobileDataToken = req.headers["x-mobile-data-token"];
+  const adminAccessToken = req.headers["x-admin-access-token"];
   const mobileSessionId = req.headers["x-mobile-session-id"];
   console.log({ platform: req.headers["x-platform"] });
  console.log(`mobileDataToken tokens : ${mobileDataToken}`)
