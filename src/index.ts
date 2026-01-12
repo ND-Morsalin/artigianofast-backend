@@ -112,6 +112,7 @@ app.use(
 app.use((req, res, next) => {
   // console log of the requested path
   console.log(`Incoming request: ${req.method} ${req.path}`);
+
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
@@ -143,7 +144,8 @@ app.use((req, res, next) => {
   const adminAccessToken = req.headers["x-admin_access_token"];
   const mobileSessionId = req.headers["x-mobile-session-id"];
   console.log({ platform: req.headers["x-platform"] });
-
+ console.log(`mobileDataToken tokens : ${mobileDataToken}`)
+ console.log(`adminAccessToken tokens : ${adminAccessToken}`)
   const mobileData = mobileDataToken
     ? JwtInstance.verifyToken(mobileDataToken as string)
     : null;
